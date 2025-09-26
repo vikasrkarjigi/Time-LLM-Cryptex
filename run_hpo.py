@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument('--study_name', type=str, default='', help='If not empty, uses the study name. Model name is added to the beginning of the study name.')
     parser.add_argument('--db_name', type=str, default='optuna_study.db', help='Default is optuna_study.db. Accesses the specified database.')
     parser.add_argument('--data_path', type=str, default='daily', help='Data path to use. Data path already exists in ./dataset/cryptex/')
+    parser.add_argument('--metric', type=str, default='MDA', help='Metric to use. Options: MDA, MAE, MSE, MAPE')
     return parser.parse_args()
   
 
@@ -102,7 +103,7 @@ def objective(trial):
 
     target = "returns" if "ret" in data_path.lower() else "close"
     
-    metric = "MDA"
+    metric = "MDA" 
     
     # --- Dynamic/Conditional Parameters ---
     # Generate a unique model_id for each trial
@@ -200,6 +201,7 @@ if __name__ == "__main__":
     # --- 5. Create and Run the Optuna Study ---
     # The 'study_name' will group your runs. If you restart the script, it will resume.
     # 'storage' tells Optuna to save results to a local SQLite database.
+    
     args = parse_args()
     if args.gpu != '1':
         OPTUNA_STORAGE_PATH = f"sqlite:////mnt/nfs/mlflow/"
@@ -215,6 +217,15 @@ if __name__ == "__main__":
 
     print(f"OPTUNA_STORAGE_PATH: {OPTUNA_STORAGE_PATH}")
 
+    metric = args.metric
+    metric_dir_map = {
+        "MDA": "maximize",
+        "MAE": "minimize",
+        "MSE": "minimize",
+        "MAPE": "minimize",
+        "SHARPE": "maximize",
+    }
+
     # Create a new study name if the user wants a new study based on datetime
     if args.new_study == 'True':
         study_name = f"{llm_model.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_study"
@@ -227,7 +238,7 @@ if __name__ == "__main__":
 
     study = optuna.create_study(
         study_name=study_name,
-        direction="minimize",  # We want to minimize validation loss/metric
+        direction=metric_dir_map[metric],  # We want to maximize validation loss/metric
         storage=OPTUNA_STORAGE_PATH,
         load_if_exists=True # Resume study if it already exists
     )

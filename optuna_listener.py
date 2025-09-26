@@ -40,5 +40,3 @@ def run_inference(model_id, model, data_path):
         if p1.wait() != 0:
             raise RuntimeError(f"Inference failed: {model_id}")
 
-        if p1.wait() != 0:
-            raise RuntimeError(f"Backtest failed: {model_id}")

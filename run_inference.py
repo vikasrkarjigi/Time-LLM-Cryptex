@@ -27,6 +27,7 @@ def parse_args():
     parser.add_argument('--llm_model', type=str, default='LLAMA', help='LLM backbone name (should match training)')
     parser.add_argument('--mlflow_tracking_uri', type=str, default=None, help='Optional MLflow tracking URI')
     parser.add_argument('--data_path', type=str, default=None, help='Optional override for input data CSV')
+    parser.add_argument('--save_path', type=str, default=None, help='Optional override for output location of inference.csv')
     return parser.parse_args()
 
 def cast_params(params):
@@ -125,6 +126,10 @@ def main():
         result_df = pd.DataFrame(results)
         csv_path = os.path.join(tmpdir, 'inference.csv')
         result_df.to_csv(csv_path, index=False)
+        
+        if cli_args.save_path:
+            os.makedirs(cli_args.save_path, exist_ok=True)
+            result_df.to_csv(cli_args.save_path + '/inference.csv', index=False)
 
         # Log to MLflow
         mlflow.set_experiment(args.llm_model)
