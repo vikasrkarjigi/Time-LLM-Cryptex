@@ -7,6 +7,7 @@ from optuna.trial import TrialState
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--study_name", type=str, default="optuna_study")
+parser.add_argument("--inference_file", type=str, default=None, help="Inference file to use for backtesting. Give full path to the file.")
 args = parser.parse_args()
 # --------- CONFIG ----------
 STUDY_NAME = os.getenv("OPTUNA_STUDY", args.study_name)
