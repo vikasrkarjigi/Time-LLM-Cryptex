@@ -65,16 +65,16 @@ def objective(trial):
     # Optuna will intelligently pick values from these ranges/choices.
     
     # Categorical parameters: Optuna will choose from the list.
-    features = trial.suggest_categorical("features", ["M", "MS", "S"])
+    features = trial.suggest_categorical("features", ["S","S"])
     seq_len = trial.suggest_categorical("seq_len", [24, 36, 48])
-    pred_len = trial.suggest_categorical("pred_len", [12, 24])
+    pred_len = trial.suggest_categorical("pred_len", [2, 2])
     num_tokens = trial.suggest_categorical("num_tokens", [100, 500, 1000])
     loss = trial.suggest_categorical("loss", ["MSE", "MADL", "GMADL"])
     lradj = trial.suggest_categorical("lradj", ["type1", "type2", "type3", "PEMS", "TST", "constant"])
 
     n_heads = trial.suggest_categorical("n_heads", [2, 4, 8, 16])
     d_ff = trial.suggest_categorical("d_ff", [32, 64, 128, 256])
-    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64])
+    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64, 128])
     patch_len = trial.suggest_categorical("patch_len", [12, 16, 24])
     stride = trial.suggest_categorical("stride", [6, 12])
 
