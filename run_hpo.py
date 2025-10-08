@@ -30,7 +30,8 @@ def parse_args():
     parser.add_argument('--study_name', type=str, default='', help='If not empty, uses the study name. Model name is added to the beginning of the study name.')
     parser.add_argument('--db_name', type=str, default='optuna_study.db', help='Default is optuna_study.db. Accesses the specified database.')
     parser.add_argument('--data_path', type=str, default='daily', help='Data path to use. Data path already exists in ./dataset/cryptex/')
-    parser.add_argument('--metric', type=str, default='MDA', help='Metric to use. Options: MDA, MAE, MSE, MAPE')
+    parser.add_argument('--inf_path', type=str, default=None, help='Inference path to use. Inference path already exists in ./dataset/cryptex/')
+    parser.add_argument('--backtest', type=bool, default=False, help='If True, backtests the best model.')
     return parser.parse_args()
   
 
@@ -60,13 +61,27 @@ def objective(trial):
     Defines one trial in the Optuna study.
     Optuna will suggest hyperparameter values, which we use to launch run_main.py.
     The function returns the metric we want to optimize (e.g., validation loss).
+
+    For some context, here is the correlation matrix between (some) hyperparameters and return:
+    llm_layers            -0.01203
+    sequence              -0.21257
+    prediction            -0.01400
+    patch                 -0.27668
+    stride                -0.31313
+    vocab_size             0.08179
+    llm_model_DEEPSEEK    -0.02113
+    llm_model_LLAMA3.1     0.07906
+    llm_model_MISTRAL     -0.09232
+    llm_model_QWEN         0.05585
+    features_MS           -0.08478
+    features_S             0.08478    
     """
     # --- 2. Define the Hyperparameter Search Space ---
     # Optuna will intelligently pick values from these ranges/choices.
     
     # Categorical parameters: Optuna will choose from the list.
-    features = trial.suggest_categorical("features", ["S","S"])
-    seq_len = trial.suggest_categorical("seq_len", [24, 36, 48])
+    features = trial.suggest_categorical("features", ["S","MS","M"])
+    seq_len = trial.suggest_categorical("seq_len", [72, 96, 120])
     pred_len = trial.suggest_categorical("pred_len", [2, 2])
     num_tokens = trial.suggest_categorical("num_tokens", [100, 500, 1000])
     loss = trial.suggest_categorical("loss", ["MSE", "MADL", "GMADL"])
@@ -74,12 +89,13 @@ def objective(trial):
 
     n_heads = trial.suggest_categorical("n_heads", [2, 4, 8, 16])
     d_ff = trial.suggest_categorical("d_ff", [32, 64, 128, 256])
-    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32, 64, 128])
+    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
     patch_len = trial.suggest_categorical("patch_len", [12, 16, 24])
     stride = trial.suggest_categorical("stride", [6, 12])
+    epochs = trial.suggest_categorical("epochs", [10, 10])
 
     # Integer parameters: Optuna will choose an integer within the range.
-    llm_layers = trial.suggest_int("llm_layers", 4, 12)
+    llm_layers = trial.suggest_int("llm_layers", 4, 10)
     d_model = trial.suggest_int("d_model", 16, 64, step=16) # Suggests 16, 32, 48, 64
 
 
@@ -100,10 +116,12 @@ def objective(trial):
     trial.set_user_attr("dataset", dataset)
     trial.set_user_attr("granularity", data_path.split("/")[-2])
     trial.set_user_attr("target", "returns" if "ret" in data_path.lower() else "close")
-
     target = "returns" if "ret" in data_path.lower() else "close"
+    trial.set_user_attr("data_type", "returns" if str(target) == "returns" else "ohlcv")
+
+    trial.set_user_attr("metric", "MDA")
+    metric = "MDA"
     
-    metric = "MDA" 
     
     # --- Dynamic/Conditional Parameters ---
     # Generate a unique model_id for each trial
@@ -140,7 +158,7 @@ def objective(trial):
         '--root_path', './dataset/cryptex/',
         '--data_path', data_path,
         '--target', target,
-        '--train_epochs', '10',
+        '--train_epochs', str(epochs),
     ]
     
     print(f"\n--- Starting Trial {trial.number} ---\n{' '.join(cmd)}\n")
@@ -172,9 +190,13 @@ def objective(trial):
             raise optuna.exceptions.TrialPruned(f"Metric '{validation_metric_key}' not found.")
             
         final_metric = latest_metrics[validation_metric_key]
+        print(f"Latest Metrics: {latest_metrics}")
         
         print(f"--- Trial {trial.number} Finished ---")
         print(f"Validation Metric ({validation_metric_key}): {final_metric}")
+
+        if final_metric == 0:
+            raise optuna.exceptions.TrialPruned("Validation metric is 0.")
         
         return final_metric
 
@@ -201,7 +223,6 @@ if __name__ == "__main__":
     # --- 5. Create and Run the Optuna Study ---
     # The 'study_name' will group your runs. If you restart the script, it will resume.
     # 'storage' tells Optuna to save results to a local SQLite database.
-    
     args = parse_args()
     if args.gpu != '1':
         OPTUNA_STORAGE_PATH = f"sqlite:////mnt/nfs/mlflow/"
@@ -217,15 +238,6 @@ if __name__ == "__main__":
 
     print(f"OPTUNA_STORAGE_PATH: {OPTUNA_STORAGE_PATH}")
 
-    metric = args.metric
-    metric_dir_map = {
-        "MDA": "maximize",
-        "MAE": "minimize",
-        "MSE": "minimize",
-        "MAPE": "minimize",
-        "SHARPE": "maximize",
-    }
-
     # Create a new study name if the user wants a new study based on datetime
     if args.new_study == 'True':
         study_name = f"{llm_model.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_study"
@@ -238,7 +250,7 @@ if __name__ == "__main__":
 
     study = optuna.create_study(
         study_name=study_name,
-        direction=metric_dir_map[metric],  # We want to maximize validation loss/metric
+        direction="minimize",  # We want to minimize validation loss/metric
         storage=OPTUNA_STORAGE_PATH,
         load_if_exists=True # Resume study if it already exists
     )
