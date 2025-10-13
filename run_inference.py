@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument('--mlflow_tracking_uri', type=str, default=None, help='Optional MLflow tracking URI')
     parser.add_argument('--data_path', type=str, default=None, help='Optional override for input data CSV')
     parser.add_argument('--save_path', type=str, default=None, help='Optional override for output location of inference.csv')
+    parser.add_argument('--pipeline', type=bool, default=False, help='Informs that the inference is being run in the pipeline')
     return parser.parse_args()
 
 def cast_params(params):
