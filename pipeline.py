@@ -5,6 +5,12 @@ import numpy as np
 def perform_inference(model_id, llm_model, inf_path, save_path):
     """
     Pipeline for the TimeLLM model.
+
+    args:
+        model_id: model id
+        llm_model: llm model
+        inf_path: path to the inference data
+        save_path: path to save the inference data
     """
 
     print(f"\nInf path: {inf_path}\n")
@@ -34,9 +40,13 @@ def perform_backtest(model_id, llm_model, inf_output_path):
     cmd = f"python backtesting/backtest.py --data {inf_output_path}"
     subprocess.run(cmd, shell=True)
 
-def inf_analysis(new_data_path):
+def inf_analysis(run, new_data_path):
     """
     Perform analysis on the inference data.
+
+    args:
+        client: mlflow client
+        new_data_path: path to the new data
     """
     print(f"\nPerforming analysis on {new_data_path}\n")
     data = pd.read_csv(new_data_path)
@@ -88,7 +98,7 @@ def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=Tr
 
     return output_path
 
-def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_path):
+def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_path, num_predictions):
     """
     Convert returns data back to candlesticks. This is used to backtest the model.
     Writes the inferenced data to the inferenced data path.
@@ -104,9 +114,9 @@ def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_
     
     # Get the last known close price before predictions start
     last_close = result.loc[result.index[predicted_returns['returns_predicted_1'].first_valid_index()-1], 'close']
-    
-    # Calculate predicted close prices from returns
-    for i in range(1, 3):  # For returns_predicted_1 and returns_predicted_2
+
+
+    for i in range(1, num_predictions+1):  # For returns_predicted_1 and returns_predicted_2
         col = f'returns_predicted_{i}'
         if col in predicted_returns.columns:
             # Calculate cumulative returns 

@@ -200,6 +200,8 @@ def objective(trial):
     trial_id = str(uuid.uuid4())[:8]
     model_id = f"{llm_model}_L{trial_dict['llm_layers']}_{trial_dict['features']}_seq{trial_dict['seq_len']}_trial_{trial_id}_dataset_{trial_dict['dataset']}"
 
+    # Set the experiment name
+    experiment_name = "Pipeline"
 
     # --- 4. Run the Trial and Get the Result ---
     # We use MLflow to get the result of the trial.
@@ -222,7 +224,7 @@ def objective(trial):
         subprocess.run(cmd, check=True, text=True, capture_output=True)
         # After the run completes, find it in MLflow
         time.sleep(2) # Give MLflow a moment to log everything
-        run = _find_mlflow_run(client, llm_model, model_id)
+        run = _find_mlflow_run(client, experiment_name, model_id)
         
         if not run:
             raise optuna.exceptions.TrialPruned("Could not find MLflow run post-execution.")
@@ -252,7 +254,10 @@ def objective(trial):
                 perform_inference(model_id, llm_model, inf_path, save_path = save_path)
                 
                 if args.returns:
-                    convert_back_to_candlesticks(inf_path, inf_output_path, args.root_path)
+                    convert_back_to_candlesticks(inf_path, inf_output_path, args.root_path, num_predictions = trial_dict['pred_len'])
+
+                inf_analysis(run, inf_output_path)
+
 
             except Exception as e:
                 print(f"\nInference failed: {e}\n")
@@ -277,7 +282,7 @@ def objective(trial):
         
         time.sleep(2)
         # --- Error Logging to MLflow ---
-        run = _find_mlflow_run(client, llm_model, model_id)
+        run = _find_mlflow_run(client, experiment_name, model_id)
         if run:
             failed_run_id = run.info.run_id
             full_output = f"--- STDOUT ---\n{e.stdout}\n\n--- STDERR ---\n{e.stderr}"
