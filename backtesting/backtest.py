@@ -4,11 +4,13 @@ import numpy as np
 import pandas as pd
 import tqdm
 
+from sharpe_calculator import calculate_sharpe_ratio_manual, sharpe_ratio_from_returns, sharpe_ratio_from_prices, sharpe_ratio_from_dataframe, sortino_ratio, information_ratio, sharpe_ratio_from_returns
+
 from utils import load_and_prepare_data
 from strategies import (
     SimpleAIStrategy, SLTPStrategy, MomentumAIStrategy,
     RSIAIStrategy, BollingerAIStrategy, MeanReversionAIStrategy,
-    TrendFollowingAIStrategy
+    TrendFollowingAIStrategy, TradeLog
 )
 
 # Strategy configurations
@@ -132,6 +134,7 @@ class BacktestRunner:
         self.data_feed_class = None
         self.results = {}
         self.load_data()
+
     
     def load_data(self):
         """Load and prepare data"""
@@ -167,7 +170,9 @@ class BacktestRunner:
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
         cerebro.addanalyzer(bt.analyzers.SQN, _name='sqn')
-        
+        cerebro.addanalyzer(TradeLog, _name='trade_log')
+
+
         # Run backtest
         results = cerebro.run()
         strategy_result = results[0]
@@ -180,6 +185,14 @@ class BacktestRunner:
             'trades': strategy_result.analyzers.trades.get_analysis(),
             'sqn': strategy_result.analyzers.sqn.get_analysis(),
         }
+        
+        # Calculate manual Sharpe ratio as fallback
+        sharpe_from_analyzer = analyzer_results['sharpe'].get('sharperatio', None)
+        if sharpe_from_analyzer is None or sharpe_from_analyzer == 0:
+            manual_sharpe = calculate_sharpe_ratio_manual(strategy_result, periods_per_year=252)
+            if manual_sharpe is not None:
+                analyzer_results['sharpe_manual'] = manual_sharpe
+                print(f"Using manual Sharpe calculation: {manual_sharpe:.4f}")
         
         # Store results
         final_value = cerebro.broker.getvalue()
@@ -228,19 +241,31 @@ class BacktestRunner:
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
         cerebro.addanalyzer(bt.analyzers.SQN, _name='sqn')
+        cerebro.addanalyzer(TradeLog, _name='trade_log')
             
         # Run optimization
         opt_results = cerebro.run()
+        
 
         summary_data = []
         for strat_list in opt_results:
+            
             strat = strat_list[0]  # one instance per param combo
             
             params = strat.params._getkwargs()
             
             # Extract analyzers
             returns = strat.analyzers.returns.get_analysis()
-            sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or 0
+            sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or -float('inf')            
+        
+            print(strat.analyzers.trade_log.get_analysis().head())
+            print("\n")
+            # Try manual Sharpe calculation if analyzer returns 0
+            if sharpe == 0:
+                manual_sharpe = calculate_sharpe_ratio_manual(strat, periods_per_year=252)
+                if manual_sharpe is not None:
+                    sharpe = manual_sharpe
+            
             drawdown = strat.analyzers.drawdown.get_analysis()
             max_dd = drawdown.get('max', {}).get('drawdown', 0) or 0
             
@@ -290,7 +315,8 @@ class BacktestRunner:
             
             # Extract key metrics safely
             total_return = result['total_return']
-            sharpe = analyzers.get('sharpe', {}).get('sharperatio', 0) or 0
+            # Use manual Sharpe if available, otherwise use analyzer Sharpe
+            sharpe = analyzers.get('sharpe_manual', analyzers.get('sharpe', {}).get('sharperatio', 0)) or 0
             max_dd = analyzers.get('drawdown', {}).get('max', {}).get('drawdown', 0) or 0
             max_dd_pct = max_dd * 100
             
@@ -416,6 +442,12 @@ class BacktestRunner:
                 strat = strat_list[0]
                 sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or 0
                 
+                # Try manual Sharpe calculation if analyzer returns 0
+                if sharpe == 0:
+                    manual_sharpe = calculate_sharpe_ratio_manual(strat, periods_per_year=252)
+                    if manual_sharpe is not None:
+                        sharpe = manual_sharpe
+                
                 if sharpe > best_sharpe:
                     best_sharpe = sharpe
                     best_params = strat.params._getkwargs()
@@ -505,14 +537,6 @@ class BacktestRunner:
                 cumulative_return *= (1 + ret/100)
             cumulative_return = (cumulative_return - 1) * 100
             
-
-            print(f"\n[Walk Forward Summary] {strategy_name}")
-            print(f"Total Periods: {total_periods}")
-            print(f"Positive Periods: {positive_periods}/{total_periods} ({win_rate_periods:.1f}%)")
-            print(f"Average Test Return: {avg_test_return:.2f}%")
-            print(f"Cumulative Return: {cumulative_return:.2f}%")
-            print(f"Average Sharpe Ratio: {avg_test_sharpe:.3f}")
-            print(f"Average Max Drawdown: {avg_test_dd:.2f}%")  
 
             if not self.pipeline: # Only print summary if not from pipeline
                 print(f"[Walk Forward Summary] {strategy_name}")

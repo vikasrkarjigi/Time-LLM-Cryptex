@@ -1,5 +1,6 @@
 import backtrader as bt
 import numpy as np
+import pandas as pd
 
 class BaseAIStrategy(bt.Strategy):
     """Base strategy class with common AI prediction functionality"""
@@ -21,6 +22,8 @@ class BaseAIStrategy(bt.Strategy):
         
         # Trick to include raw predictions in the plot
         pred_plot = bt.indicators.SimpleMovingAverage(self.prediction, period=1, plotname=f'Raw Prediction {self.params.prediction_horizon}')
+
+        
     
     def get_prediction_signal(self):
         """Get trading signal based on AI predictions"""
@@ -48,6 +51,7 @@ class BaseAIStrategy(bt.Strategy):
         price = self.data.close[0]
         size = (cash / price) * self.params.position_size
         return round(size, 8)
+
 
 class SimpleAIStrategy(BaseAIStrategy):
     """Simple AI strategy that trades based on predictions"""
@@ -162,6 +166,7 @@ class BollingerAIStrategy(BaseAIStrategy):
         self.bb = bt.indicators.BollingerBands(self.data.close, 
                                                period=self.params.bb_period,
                                                devfactor=self.params.bb_std)
+
     
     def next(self):
         signal = self.get_prediction_signal()
@@ -177,6 +182,9 @@ class BollingerAIStrategy(BaseAIStrategy):
             # Sell if AI predicts down or price near upper band
             if signal == -1 or price >= self.bb.lines.top[0]:
                 self.close()
+
+
+
 
 class MeanReversionAIStrategy(BaseAIStrategy):
     """Mean reversion strategy with AI predictions"""
@@ -244,3 +252,36 @@ class TrendFollowingAIStrategy(BaseAIStrategy):
             # Sell if AI predicts down or trend changes
             if signal == -1 or not trend_up:
                 self.close()
+
+    
+class TradeLog(bt.Analyzer):
+    def start(self):
+        self.trade_log = {}
+
+    def notify_trade(self, trade):
+        if trade.justopened:
+            self.trade_log[trade.ref] = {}
+            cur_trade = self.trade_log[trade.ref]
+            cur_trade['bar_open'] = int(trade.baropen)
+            cur_trade['bar_close'] = None
+            cur_trade['size'] = trade.size
+            cur_trade['value'] = trade.value
+            cur_trade['entry_price'] = trade.price
+            cur_trade['exit_price'] = None
+            cur_trade['pnlcomm'] = None
+            cur_trade['return'] = None
+            cur_trade['commission'] = trade.commission
+
+        elif trade.isclosed:
+            cur_trade = self.trade_log[trade.ref]
+            cur_trade['bar_close'] = int(trade.barclose)
+            cur_trade['exit_price'] = cur_trade['entry_price'] + (1/cur_trade['size'] * trade.pnl)
+            cur_trade['pnlcomm'] = trade.pnlcomm
+            cur_trade['pnl'] = trade.pnl
+            cur_trade['return'] = trade.pnl / cur_trade['value']
+            cur_trade['ret_comm'] = trade.pnlcomm / cur_trade['value']
+
+    def get_analysis(self):
+        log = pd.DataFrame.from_dict(self.trade_log, orient='index')
+
+        return log

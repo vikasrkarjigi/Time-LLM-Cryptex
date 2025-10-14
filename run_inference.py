@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument('--data_path', type=str, default=None, help='Optional override for input data CSV')
     parser.add_argument('--save_path', type=str, default=None, help='Optional override for output location of inference.csv')
     parser.add_argument('--pipeline', type=bool, default=False, help='Informs that the inference is being run in the pipeline')
+    parser.add_argument('--experiment_name', type=str, default=None, help='Experiment name to use for MLflow experiment tracking and logging.')
     return parser.parse_args()
 
 def cast_params(params):
@@ -69,6 +70,9 @@ def main():
 
     args, model_state_path, run_id = load_mlflow_artifacts_and_args(
         cli_args.model_id, cli_args.llm_model, experiment_name = cli_args.experiment_name, tracking_uri = cli_args.mlflow_tracking_uri)
+    
+
+
     # Allow CLI override for data_path
     if cli_args.data_path: args.data_path = cli_args.data_path
     # Load the full input data CSV
@@ -137,7 +141,7 @@ def main():
             result_df.to_csv(cli_args.save_path + '/inference.csv', index=False)
 
         # Log to MLflow
-        mlflow.set_experiment(args.llm_model)
+        mlflow.set_experiment(args.experiment_name)
         with mlflow.start_run(run_id=run_id):
             mlflow.log_artifact(csv_path)
             mlflow.set_tag('inference', 'completed')

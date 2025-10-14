@@ -7,7 +7,7 @@ import time
 import os
 import argparse
 from datetime import datetime
-from pipeline import perform_inference, perform_backtest, inf_analysis, convert_to_returns, convert_back_to_candlesticks
+from utils.pipeline import perform_inference, perform_backtest, inf_analysis, convert_to_returns, convert_back_to_candlesticks
 
 import warnings
 
@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument('--inf_path', type=str, default=None, help='Inference path to use. Inference path already exists in ./dataset/cryptex/')
     parser.add_argument('--backtest', action='store_true', help='If set, run backtest after training')
     parser.add_argument('--root_path', type=str, default='./dataset/cryptex/', help='Root path to use. Root path already exists in ./dataset/cryptex/')
-    parser.add_argument('--experiment_name', type=str, default='LLAMA3.1', help='Experiment name to use. Default is LLAMA3.1.')
+    parser.add_argument('--experiment_name', type=str, default=None, help='Experiment name to use. Default is None.')
     return parser.parse_args()
   
 
@@ -171,7 +171,10 @@ def set_optuna_vars(trial,data_path):
     trial.set_user_attr("metric", "MDA")
     vars_dict["metric"] = "MDA"
 
-    vars_dict["experiment_name"] = args.experiment_name
+    if args.experiment_name:
+        vars_dict["experiment_name"] = args.experiment_name
+    else:
+        vars_dict["experiment_name"] = llm_model
 
     return vars_dict
 
@@ -259,14 +262,15 @@ def objective(trial):
         
         # This section checks to run inference if the inference path is provided
         # As well checks if the returns flag is set and converts the data back to candlesticks
+        to_artifact = []
         if args.inf_path:
             try:
-                perform_inference(model_id, llm_model, inf_path, save_path = save_path)
+                perform_inference(model_id, llm_model, inf_path, save_path = save_path, experiment_name = experiment_name)
                 
                 if args.returns:
                     convert_back_to_candlesticks(inf_path, inf_output_path, root_path, num_predictions = trial_dict['pred_len'])
 
-                inf_analysis(run, inf_output_path)
+                to_artifact.append(inf_analysis(run, inf_output_path))
 
 
             except Exception as e:
@@ -274,7 +278,7 @@ def objective(trial):
 
         if args.backtest:   # Performs the backtest if the backtest flag is set
             try:
-                perform_backtest(model_id, llm_model, inf_output_path)
+                perform_backtest(inf_output_path)
             except Exception as e:
                 print(f"\nBacktest failed: {e}\n")  
 

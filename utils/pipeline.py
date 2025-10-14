@@ -1,8 +1,9 @@
 import subprocess
 import pandas as pd
 import numpy as np
+import mlflow
 
-def perform_inference(model_id, llm_model, inf_path, save_path):
+def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name):
     """
     Pipeline for the TimeLLM model.
 
@@ -14,29 +15,23 @@ def perform_inference(model_id, llm_model, inf_path, save_path):
     """
     print(f"\nRunning inference for {model_id} with {llm_model} on {inf_path}\n")
     
-    cmd = f"python run_inference.py --model_id {model_id} --llm_model {llm_model} --data_path {inf_path} --save_path {save_path}"
+    cmd = f"python run_inference.py --model_id {model_id} --llm_model {llm_model} --data_path {inf_path} --save_path {save_path} --experiment_name {experiment_name}"
     subprocess.run(cmd, shell=True)
 
 
-def perform_backtest(model_id, llm_model, inf_output_path):
+def perform_backtest(inf_output_path):
     """
     Perform backtest on the inference data.
 
     args:
-        model_id: model id
-        llm_model: llm model
         inf_output_path: path to the inferenced data in candlestick format
     """
 
-    print(f"\nInf output path: {inf_output_path}\n")
     
-    data = pd.read_csv(inf_output_path)
-    print(data.head())
-    print(f"\nPerforming backtest for {model_id} with {llm_model} on {inf_output_path}\n")
-    cmd = f"python backtesting/backtest.py --data {inf_output_path} --walk_forward BollingerAI --optimize --pipeline"
+    cmd = f"python backtesting/backtest.py --data {inf_output_path} --walk_forward 12 --optimize BollingerAI --pipeline"
     subprocess.run(cmd, shell=True)
 
-def inf_analysis(run, new_data_path):
+def inf_analysis(run, inf_path):
     """
     Perform analysis on the inference data.
 
@@ -44,11 +39,29 @@ def inf_analysis(run, new_data_path):
         client: mlflow client
         new_data_path: path to the new data
     """
-    print(f"\nPerforming analysis on {new_data_path}\n")
-    data = pd.read_csv(new_data_path)
-    data['timestamp'] = pd.to_datetime(data['timestamp'])
-    data.set_index('timestamp', inplace=True)
-    data.sort_index(inplace=True)
+
+    to_rets = lambda x : x / x.shift(1) - 1
+
+    data = pd.read_csv(inf_path).dropna()
+    pred_len = data.columns.str.contains('predicted').sum()
+
+    true_rets = to_rets(data['close'])
+
+    mda_vals = {}
+
+    for pred in range(1, pred_len+1):
+        try:
+            pred_rets = to_rets(data[f'close_predicted_{pred}']) 
+        except:
+            print(f"Column {f'close_predicted_{pred}'} not found in data.")
+            continue
+
+        min_len = min(len(pred_rets), len(true_rets))
+        mda = ((pred_rets.iloc[-min_len:] * true_rets.iloc[-min_len:]) > 0).mean()
+        mda_vals[f'inf_pred_{pred}_mda'] = mda
+
+    return mda_vals
+
 
 def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=True, log_returns=False):
     """
