@@ -320,8 +320,9 @@ class BacktestRunner:
         strategy_to_plot = df.iloc[0]['Strategy']
         cerebro = self.results[strategy_to_plot]['cerebro']
 
-        print(f"\n[Plot] Showing {strategy_to_plot}")
-        cerebro.plot(style='candlestick', barup='green', bardown='red')
+        if not self.pipeline: # Only plot if not from pipeline
+            print(f"\n[Plot] Showing {strategy_to_plot}")
+            cerebro.plot(style='candlestick', barup='green', bardown='red')
 
         return df
     
@@ -504,21 +505,31 @@ class BacktestRunner:
                 cumulative_return *= (1 + ret/100)
             cumulative_return = (cumulative_return - 1) * 100
             
-            print(f"[Walk Forward Summary] {strategy_name}")
+
+            print(f"\n[Walk Forward Summary] {strategy_name}")
             print(f"Total Periods: {total_periods}")
             print(f"Positive Periods: {positive_periods}/{total_periods} ({win_rate_periods:.1f}%)")
             print(f"Average Test Return: {avg_test_return:.2f}%")
             print(f"Cumulative Return: {cumulative_return:.2f}%")
             print(f"Average Sharpe Ratio: {avg_test_sharpe:.3f}")
-            print(f"Average Max Drawdown: {avg_test_dd:.2f}%")
+            print(f"Average Max Drawdown: {avg_test_dd:.2f}%")  
+
+            if not self.pipeline: # Only print summary if not from pipeline
+                print(f"[Walk Forward Summary] {strategy_name}")
+                print(f"Total Periods: {total_periods}")
+                print(f"Positive Periods: {positive_periods}/{total_periods} ({win_rate_periods:.1f}%)")
+                print(f"Average Test Return: {avg_test_return:.2f}%")
+                print(f"Cumulative Return: {cumulative_return:.2f}%")
+                print(f"Average Sharpe Ratio: {avg_test_sharpe:.3f}")
+                print(f"Average Max Drawdown: {avg_test_dd:.2f}%")
             
-            print(f"\n[Period Details]")
-            display_df = wf_df[['period', 'test_start', 'test_end', 'test_return_pct', 
-                            'test_sharpe', 'test_max_dd_pct', 'test_trades']].copy()
-            display_df['test_start'] = display_df['test_start'].dt.strftime('%Y-%m-%d')
-            display_df['test_end'] = display_df['test_end'].dt.strftime('%Y-%m-%d')
-            
-            print(display_df.to_string(index=False, float_format='%.2f'))
+                print(f"\n[Period Details]")
+                display_df = wf_df[['period', 'test_start', 'test_end', 'test_return_pct', 
+                                'test_sharpe', 'test_max_dd_pct', 'test_trades']].copy()
+                display_df['test_start'] = display_df['test_start'].dt.strftime('%Y-%m-%d')
+                display_df['test_end'] = display_df['test_end'].dt.strftime('%Y-%m-%d')
+                
+                print(display_df.to_string(index=False, float_format='%.2f'))
             
             return wf_df
         else:
@@ -537,7 +548,7 @@ def main():
     parser.add_argument('--train_days', type=int, default=60, help='Training days for walk-forward')
     parser.add_argument('--test_days', type=int, default=30, help='Test days for walk-forward')
     parser.add_argument('--step_days', type=int, default=30, help='Step days for walk-forward')
-
+    parser.add_argument('--pipeline', action='store_true', help='Used to determine if the backtest is from the pipeline. Do not use this flag if you are not running the backtest from the pipeline.')
     
     args = parser.parse_args()
     

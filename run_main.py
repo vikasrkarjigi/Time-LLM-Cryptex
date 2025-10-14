@@ -76,6 +76,7 @@ def parse_args():
     parser.add_argument('--percent', type=int, default=100, help='Percentage of the dataset to use for training (useful for quick experiments or ablation studies).')
     parser.add_argument('--num_tokens', type=int, default=1000, help='Number of tokens for the mapping layer (controls tokenization granularity).')
     parser.add_argument('--enable_mlflow', action='store_true', default=True, help='Enable MLflow experiment tracking and logging (recommended: keep enabled).')
+    parser.add_argument('--experiment_name', type=str, default=None, help='Experiment name to use for MLflow experiment tracking and logging.')
 
     return parser.parse_args()
 
@@ -90,7 +91,12 @@ def run_training(args, accelerator):
 
     # Only the main process should create an MLflow run and log artifacts/metrics
     if enable_mlflow and accelerator.is_main_process:
-        mlflow.set_experiment(args.llm_model)
+        print(f"Setting experiment name to {args.experiment_name}")
+        if args.experiment_name:
+            mlflow.set_experiment(args.experiment_name)
+        else:
+            mlflow.set_experiment(args.llm_model)
+
         run_context = mlflow.start_run(run_name=args.model_id)
         hostname = socket.gethostname()
         mlflow.set_tag("hostname", hostname)

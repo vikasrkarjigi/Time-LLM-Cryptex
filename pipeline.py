@@ -12,10 +12,6 @@ def perform_inference(model_id, llm_model, inf_path, save_path):
         inf_path: path to the inference data
         save_path: path to save the inference data
     """
-
-    print(f"\nInf path: {inf_path}\n")
-    print(f"\nSave path: {save_path}\n")
-
     print(f"\nRunning inference for {model_id} with {llm_model} on {inf_path}\n")
     
     cmd = f"python run_inference.py --model_id {model_id} --llm_model {llm_model} --data_path {inf_path} --save_path {save_path}"
@@ -37,7 +33,7 @@ def perform_backtest(model_id, llm_model, inf_output_path):
     data = pd.read_csv(inf_output_path)
     print(data.head())
     print(f"\nPerforming backtest for {model_id} with {llm_model} on {inf_output_path}\n")
-    cmd = f"python backtesting/backtest.py --data {inf_output_path}"
+    cmd = f"python backtesting/backtest.py --data {inf_output_path} --walk_forward BollingerAI --optimize --pipeline"
     subprocess.run(cmd, shell=True)
 
 def inf_analysis(run, new_data_path):
@@ -59,7 +55,8 @@ def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=Tr
     Convert data to returns.
 
     args:
-        data: pandas DataFrame with "close" and "volume" columns
+        data_path: path to the data from root_path
+        root_path: path to the root
         log_returns: bool, if True, the data is converted to log returns
         keep_high_low: bool, if True, the high and low prices are kept
         keep_volume: bool, if True, the volume column is kept

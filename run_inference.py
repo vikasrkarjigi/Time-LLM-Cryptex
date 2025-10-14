@@ -41,12 +41,15 @@ def cast_params(params):
         if k in params: params[k] = float(params[k])
     return params
 
-def load_mlflow_artifacts_and_args(model_id, llm_model, tracking_uri=None):
+def load_mlflow_artifacts_and_args(model_id, llm_model, experiment_name = None, tracking_uri=None):
     # Load model state dict, and config params from MLflow
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.tracking.MlflowClient()
-    experiment = client.get_experiment_by_name(llm_model)
+    if experiment_name:
+        experiment = client.get_experiment_by_name(experiment_name)
+    else:
+        experiment = client.get_experiment_by_name(llm_model)
     runs = client.search_runs([experiment.experiment_id], f"tags.mlflow.runName = '{model_id}'")
     run = runs[0]
     run_id = run.info.run_id
@@ -63,8 +66,9 @@ def load_mlflow_artifacts_and_args(model_id, llm_model, tracking_uri=None):
 def main():
     cli_args = parse_args()
     # Load config, model, and MLflow run ID
+
     args, model_state_path, run_id = load_mlflow_artifacts_and_args(
-        cli_args.model_id, cli_args.llm_model, cli_args.mlflow_tracking_uri)
+        cli_args.model_id, cli_args.llm_model, experiment_name = cli_args.experiment_name, tracking_uri = cli_args.mlflow_tracking_uri)
     # Allow CLI override for data_path
     if cli_args.data_path: args.data_path = cli_args.data_path
     # Load the full input data CSV

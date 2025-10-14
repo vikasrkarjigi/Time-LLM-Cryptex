@@ -15,6 +15,8 @@ def get_loss_function(loss_name):
         return MADLLoss()
     elif loss_name == 'GMADL':
         return GMADLLoss()
+    elif loss_name == 'MADLSTE':
+        return MADLLossSTE()
     else:
         raise ValueError(f"Unsupported loss type: {loss_name}")
 
@@ -31,6 +33,8 @@ def get_metric_function(metric_name):
         return MDAMetric()
     elif metric_name == 'SHARPE':
         return SharpeRatioMetric()
+    elif metric_name == 'MADLSTE':
+        return MADLLossSTE()
     else:
         raise ValueError(f"Unsupported metric type: {metric_name}")
 
@@ -147,4 +151,36 @@ class GMADLLoss(nn.Module):
         loss = -1.0 * adjustment * weighted_abs_return
 
         # Mean over all elements
+        return loss.mean()
+
+class MADLLossSTE(nn.Module):
+    """
+    Mean Absolute Directional Loss with Straight-Through Estimator (MADL-STE)
+    Forward pass: uses sign(x) for directional accuracy
+    Backward pass: uses identity gradient to enable learning
+    
+    This solves the zero-gradient problem of the original MADL implementation
+    while maintaining the same forward behavior.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
+        """
+        pred, true: [batch, seq_len] or [batch, seq_len, 1] (predicted and true returns)
+        """
+        # Ensure same shape
+        if pred.shape != true.shape:
+            raise ValueError(f"Shape mismatch: pred {pred.shape}, true {true.shape}")
+        
+        product = true * pred  # Element-wise Ri * R̂i
+        product_sign = torch.sign(product)  # sign(Ri * R̂i)
+        
+        # Straight-through estimator: forward uses sign, backward uses product gradient
+        # This gives the sign behavior in forward but non-zero gradients in backward
+        product_sign_ste = product_sign.detach() + product - product.detach()
+        
+        abs_return = torch.abs(true)
+        loss = (-1.0) * product_sign_ste * abs_return
+        
         return loss.mean()

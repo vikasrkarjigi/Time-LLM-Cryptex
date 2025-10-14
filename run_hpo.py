@@ -37,6 +37,7 @@ def parse_args():
     parser.add_argument('--inf_path', type=str, default=None, help='Inference path to use. Inference path already exists in ./dataset/cryptex/')
     parser.add_argument('--backtest', action='store_true', help='If set, run backtest after training')
     parser.add_argument('--root_path', type=str, default='./dataset/cryptex/', help='Root path to use. Root path already exists in ./dataset/cryptex/')
+    parser.add_argument('--experiment_name', type=str, default='LLAMA3.1', help='Experiment name to use. Default is LLAMA3.1.')
     return parser.parse_args()
   
 
@@ -46,7 +47,7 @@ def _find_mlflow_run(client, experiment_name, model_id):
     experiment = client.get_experiment_by_name(experiment_name)
     if not experiment:
         print(f"Error: MLflow experiment '{experiment_name}' not found.")
-        return None
+        return None # pruned
 
     runs = client.search_runs(
         experiment_ids=[experiment.experiment_id],
@@ -55,7 +56,9 @@ def _find_mlflow_run(client, experiment_name, model_id):
     
     if not runs:
         print(f"Warning: Could not find MLflow run with model_id {model_id}")
-        return None
+        return None # pruned
+
+    print(f"Runs: {runs}")
     
     return runs[0]
 
@@ -90,6 +93,7 @@ def create_train_cmd(trial_dict, model_id, data_path, root_path):
         '--data_path', data_path,
         '--target', trial_dict['target'],
         '--train_epochs', str(trial_dict['epochs']),
+        '--experiment_name', trial_dict['experiment_name'],
     ]
     return cmd
 
@@ -117,7 +121,7 @@ def set_optuna_vars(trial,data_path):
     seq_len = trial.suggest_categorical("seq_len", [72, 96, 120])
     pred_len = trial.suggest_categorical("pred_len", [2, 2])
     num_tokens = trial.suggest_categorical("num_tokens", [100, 500, 1000])
-    loss = trial.suggest_categorical("loss", ["MSE", "MADL", "GMADL"])
+    loss = trial.suggest_categorical("loss", ["MSE", "MADL", "GMADL", "MADLSTE"])
     lradj = trial.suggest_categorical("lradj", ["type1", "type2", "type3", "PEMS", "TST", "constant"])
 
     n_heads = trial.suggest_categorical("n_heads", [2, 4, 8, 16])
@@ -133,7 +137,7 @@ def set_optuna_vars(trial,data_path):
     vars_dict["seq_len"] = trial.suggest_categorical("seq_len", [24, 24])
     vars_dict["pred_len"] = trial.suggest_categorical("pred_len", [2, 2])
     vars_dict["num_tokens"] = trial.suggest_categorical("num_tokens", [100, 500, 1000])
-    vars_dict["loss"] = trial.suggest_categorical("loss", ["MSE", "MADL", "GMADL"])
+    vars_dict["loss"] = trial.suggest_categorical("loss", ["MADLSTE", "MADLSTE"])
     vars_dict["lradj"] = trial.suggest_categorical("lradj", ["type1", "type2", "type3", "PEMS", "TST", "constant"])
 
     vars_dict["n_heads"] = trial.suggest_categorical("n_heads", [2, 4, 8, 16])
@@ -167,6 +171,8 @@ def set_optuna_vars(trial,data_path):
     trial.set_user_attr("metric", "MDA")
     vars_dict["metric"] = "MDA"
 
+    vars_dict["experiment_name"] = args.experiment_name
+
     return vars_dict
 
 # --- 1. Define the Objective Function ---
@@ -181,18 +187,21 @@ def objective(trial):
     # Sets the optuna variables
     trial_dict = set_optuna_vars(trial, args.data_path)
 
+
+    if args.root_path[-1] != '/':
+        root_path = args.root_path + '/'
+    else:
+        root_path = args.root_path
+
     # Checks if the returns flag is set
-    inf_path = args.inf_path
     if args.returns:
-        data_path = convert_to_returns(args.data_path, args.root_path)
+        data_path = convert_to_returns(args.data_path, root_path)
 
         if args.inf_path:
-            inf_path = convert_to_returns(args.inf_path, args.root_path)
+            inf_path = convert_to_returns(args.inf_path, root_path)
     else:
-        data_path = args.root_path + args.data_path
-
-    print(f"\nData path before training: {data_path}\n")
-    print(f"\nInference path before training: {inf_path}\n")
+        data_path = args.data_path
+        inf_path = args.inf_path
 
     
     # --- Dynamic/Conditional Parameters ---
@@ -201,7 +210,7 @@ def objective(trial):
     model_id = f"{llm_model}_L{trial_dict['llm_layers']}_{trial_dict['features']}_seq{trial_dict['seq_len']}_trial_{trial_id}_dataset_{trial_dict['dataset']}"
 
     # Set the experiment name
-    experiment_name = "Pipeline"
+    experiment_name = trial_dict['experiment_name']
 
     # --- 4. Run the Trial and Get the Result ---
     # We use MLflow to get the result of the trial.
@@ -216,14 +225,15 @@ def objective(trial):
             raise Warning("Backtest flag is set but no inference path is provided. - Will not perform backtest.")
 
         # Creates the command to train the model
-        cmd = create_train_cmd(trial_dict, model_id, data_path, args.root_path)
+        
+        cmd = create_train_cmd(trial_dict, model_id, data_path, root_path)
         print(f"\n--- Starting Trial {trial.number} ---\n{' '.join(cmd)}\n")
-
 
         # Launch the subprocess
         subprocess.run(cmd, check=True, text=True, capture_output=True)
         # After the run completes, find it in MLflow
-        time.sleep(2) # Give MLflow a moment to log everything
+        time.sleep(4) # Give MLflow a moment to log everything
+
         run = _find_mlflow_run(client, experiment_name, model_id)
         
         if not run:
@@ -244,7 +254,7 @@ def objective(trial):
         print(f"--- Trial {trial.number} Finished ---")
         print(f"Validation Metric ({validation_metric_key}): {final_metric}\n")
 
-        save_path = f"{args.root_path}inference"      # Folder name for the inference data
+        save_path = f"{root_path}inference"      # Folder name for the inference data
         inf_output_path = save_path + "/inference.csv"      # Path to the inference data
         
         # This section checks to run inference if the inference path is provided
@@ -254,7 +264,7 @@ def objective(trial):
                 perform_inference(model_id, llm_model, inf_path, save_path = save_path)
                 
                 if args.returns:
-                    convert_back_to_candlesticks(inf_path, inf_output_path, args.root_path, num_predictions = trial_dict['pred_len'])
+                    convert_back_to_candlesticks(inf_path, inf_output_path, root_path, num_predictions = trial_dict['pred_len'])
 
                 inf_analysis(run, inf_output_path)
 
@@ -283,6 +293,7 @@ def objective(trial):
         time.sleep(2)
         # --- Error Logging to MLflow ---
         run = _find_mlflow_run(client, experiment_name, model_id)
+
         if run:
             failed_run_id = run.info.run_id
             full_output = f"--- STDOUT ---\n{e.stdout}\n\n--- STDERR ---\n{e.stderr}"
