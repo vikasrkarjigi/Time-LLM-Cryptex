@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 
-from sharpe_calculator import calculate_sharpe_ratio_manual, sharpe_ratio_from_returns, sharpe_ratio_from_prices, sharpe_ratio_from_dataframe, sortino_ratio, information_ratio, sharpe_ratio_from_returns
+from sharpe_calculator import calculate_sharpe_from_trade_log, calculate_sortino_from_trade_log
 
 from utils import load_and_prepare_data
 from strategies import (
@@ -123,6 +123,7 @@ OPTIMIZATION_RANGES = {
     }
 }
 
+
 class BacktestRunner:
     """Main backtesting runner using backtrader"""
     
@@ -133,6 +134,7 @@ class BacktestRunner:
         self.data = None
         self.data_feed_class = None
         self.results = {}
+        self.pipeline = False
         self.load_data()
 
     
@@ -188,11 +190,23 @@ class BacktestRunner:
         
         # Calculate manual Sharpe ratio as fallback
         sharpe_from_analyzer = analyzer_results['sharpe'].get('sharperatio', None)
-        if sharpe_from_analyzer is None or sharpe_from_analyzer == 0:
-            manual_sharpe = calculate_sharpe_ratio_manual(strategy_result, periods_per_year=252)
-            if manual_sharpe is not None:
-                analyzer_results['sharpe_manual'] = manual_sharpe
-                print(f"Using manual Sharpe calculation: {manual_sharpe:.4f}")
+        
+        # Calculate Sharpe and Sortino ratios from trade log
+        trade_log_df = strategy_result.analyzers.trade_log.get_analysis()
+        trade_sharpe = calculate_sharpe_from_trade_log(trade_log_df, periods_per_year=365*24)
+        trade_sortino = calculate_sortino_from_trade_log(trade_log_df, periods_per_year=365*24)
+        
+        if trade_sharpe is not None:
+            analyzer_results['sharpe_trade_log'] = trade_sharpe
+            print(f"Sharpe ratio from trade log: {trade_sharpe:.4f}")
+        else:
+            print("Could not calculate Sharpe ratio from trade log")
+            
+        if trade_sortino is not None:
+            analyzer_results['sortino_trade_log'] = trade_sortino
+            print(f"Sortino ratio from trade log: {trade_sortino:.4f}")
+        else:
+            print("Could not calculate Sortino ratio from trade log")
         
         # Store results
         final_value = cerebro.broker.getvalue()
@@ -246,6 +260,7 @@ class BacktestRunner:
         # Run optimization
         opt_results = cerebro.run()
         
+        full_trade_log = []
 
         summary_data = []
         for strat_list in opt_results:
@@ -258,13 +273,13 @@ class BacktestRunner:
             returns = strat.analyzers.returns.get_analysis()
             sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or -float('inf')            
         
-            print(strat.analyzers.trade_log.get_analysis().head())
-            print("\n")
-            # Try manual Sharpe calculation if analyzer returns 0
-            if sharpe == 0:
-                manual_sharpe = calculate_sharpe_ratio_manual(strat, periods_per_year=252)
-                if manual_sharpe is not None:
-                    sharpe = manual_sharpe
+            # Get trade log data
+            trade_log_df = strat.analyzers.trade_log.get_analysis()
+            #print(trade_log_df.head())
+            if trade_log_df is not None:
+                full_trade_log.append(trade_log_df)
+            
+            # Calculate Sharpe and Sortino ratios from trade log            
             
             drawdown = strat.analyzers.drawdown.get_analysis()
             max_dd = drawdown.get('max', {}).get('drawdown', 0) or 0
@@ -288,6 +303,15 @@ class BacktestRunner:
                 'Final Value ($)': final_value,
                 'Strategy Instance': strat
             })
+
+        full_trade_log = pd.concat(full_trade_log, axis=0, ignore_index=True)
+
+        full_trade_log = full_trade_log.sort_values('return', ascending=False).reset_index(drop=True)
+        total_sharpe = calculate_sharpe_from_trade_log(full_trade_log, periods_per_year=365*24)
+        total_sortino = calculate_sortino_from_trade_log(full_trade_log, periods_per_year=365*24)
+
+        print(f"Total Sharpe ratio: {total_sharpe:.4f}")
+        print(f"Total Sortino ratio: {total_sortino:.4f}")
         
         df = pd.DataFrame(summary_data)
         df = df.sort_values('Sharpe Ratio', ascending=False).reset_index(drop=True)
@@ -315,8 +339,12 @@ class BacktestRunner:
             
             # Extract key metrics safely
             total_return = result['total_return']
-            # Use manual Sharpe if available, otherwise use analyzer Sharpe
-            sharpe = analyzers.get('sharpe_manual', analyzers.get('sharpe', {}).get('sharperatio', 0)) or 0
+            # Use trade log Sharpe if available, then manual Sharpe, then analyzer Sharpe
+            sharpe = (analyzers.get('sharpe_trade_log') or 
+                     analyzers.get('sharpe_manual') or 
+                     analyzers.get('sharpe', {}).get('sharperatio', 0)) or 0
+            # Get Sortino ratio from trade log
+            sortino = analyzers.get('sortino_trade_log', 0) or 0
             max_dd = analyzers.get('drawdown', {}).get('max', {}).get('drawdown', 0) or 0
             max_dd_pct = max_dd * 100
             
@@ -329,6 +357,7 @@ class BacktestRunner:
                 'Strategy': name,
                 'Total Return (%)': total_return,
                 'Sharpe Ratio': sharpe,
+                'Sortino Ratio': sortino,
                 'Max Drawdown (%)': max_dd_pct,
                 'Total Trades': total_trades,
                 'Win Rate (%)': win_rate,
@@ -442,14 +471,9 @@ class BacktestRunner:
                 strat = strat_list[0]
                 sharpe = strat.analyzers.sharpe.get_analysis().get('sharperatio', 0) or 0
                 
-                # Try manual Sharpe calculation if analyzer returns 0
-                if sharpe == 0:
-                    manual_sharpe = calculate_sharpe_ratio_manual(strat, periods_per_year=252)
-                    if manual_sharpe is not None:
-                        sharpe = manual_sharpe
                 
                 if sharpe > best_sharpe:
-                    best_sharpe = sharpe
+                    best_sharpe = sharpe    
                     best_params = strat.params._getkwargs()
             
             if best_params is None:
@@ -577,6 +601,8 @@ def main():
     args = parser.parse_args()
     
     runner = BacktestRunner(args.data, cash=args.cash, commission=args.commission)
+    
+    runner.pipeline = args.pipeline
     
     if args.optimize:
         # Optimize specific strategy

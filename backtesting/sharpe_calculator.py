@@ -263,7 +263,7 @@ def information_ratio(returns, benchmark_returns):
     return mean_excess / std_excess
 
 
-def sortino_ratio(returns, risk_free_rate=0.0, periods_per_year=252):
+def sortino_ratio(returns, risk_free_rate=3.0, periods_per_year=252):
     """
     Calculate Sortino ratio (uses downside deviation instead of total volatility).
     
@@ -298,7 +298,7 @@ def sortino_ratio(returns, risk_free_rate=0.0, periods_per_year=252):
     
     if len(negative_returns) == 0:
         # No negative returns - undefined Sortino, return a large number
-        return float('inf')
+        return -float('inf')
     
     downside_std = np.std(negative_returns, ddof=1)
     
@@ -311,24 +311,55 @@ def sortino_ratio(returns, risk_free_rate=0.0, periods_per_year=252):
     return sortino
 
 
-# Example usage
-if __name__ == "__main__":
-    # Example 1: Calculate from returns
-    returns = [0.01, -0.005, 0.02, 0.015, -0.01, 0.005, 0.03, -0.02, 0.01, 0.008]
-    sharpe = sharpe_ratio_from_returns(returns, periods_per_year=252)
-    print(f"Sharpe ratio (from returns): {sharpe:.4f}")
+
+def calculate_sharpe_from_trade_log(trade_log_df, periods_per_year=252, risk_free_rate=0.0):
+    """
+    Calculate Sharpe ratio from trade log DataFrame.
     
-    # Example 2: Calculate from prices
-    prices = [100, 101, 100.5, 102, 103.5, 102.5, 103, 106, 104, 105]
-    sharpe_prices = sharpe_ratio_from_prices(prices, periods_per_year=252)
-    print(f"Sharpe ratio (from prices): {sharpe_prices:.4f}")
+    Args:
+        trade_log_df: DataFrame from TradeLog analyzer
+        periods_per_year: Number of trading periods per year (252 for daily)
+        risk_free_rate: Annual risk-free rate
     
-    # Example 3: Calculate Sortino ratio
-    sortino = sortino_ratio(returns, periods_per_year=252)
-    print(f"Sortino ratio: {sortino:.4f}")
+    Returns:
+        float: Sharpe ratio calculated from trade returns
+    """
+    if trade_log_df.empty or 'return' not in trade_log_df.columns:
+        return None
     
-    # Example 4: Calculate Information Ratio
-    benchmark_returns = [0.008, -0.003, 0.015, 0.012, -0.008, 0.004, 0.025, -0.015, 0.009, 0.007]
-    ir = information_ratio(returns, benchmark_returns)
-    print(f"Information Ratio: {ir:.4f}")
+    # Get valid returns (non-NaN)
+    valid_returns = trade_log_df['return'].dropna()
+    
+    if len(valid_returns) == 0:
+        return None
+    
+    # Calculate Sharpe ratio using the imported function
+    return sharpe_ratio_from_returns(valid_returns.values, risk_free_rate, periods_per_year)
+
+def calculate_sortino_from_trade_log(trade_log_df, periods_per_year=252, risk_free_rate=0.0):
+    """
+    Calculate Sortino ratio from trade log DataFrame.
+    
+    The Sortino ratio is similar to the Sharpe ratio but uses downside deviation
+    instead of total volatility, focusing only on negative returns.
+    
+    Args:
+        trade_log_df: DataFrame from TradeLog analyzer
+        periods_per_year: Number of trading periods per year (252 for daily)
+        risk_free_rate: Annual risk-free rate
+    
+    Returns:
+        float: Sortino ratio calculated from trade returns
+    """
+    if trade_log_df.empty or 'return' not in trade_log_df.columns:
+        return None
+    
+    # Get valid returns (non-NaN)
+    valid_returns = trade_log_df['return'].dropna()
+    
+    if len(valid_returns) == 0:
+        return None
+    
+    # Calculate Sortino ratio using the imported function
+    return sortino_ratio(valid_returns.values, risk_free_rate, periods_per_year)
 

@@ -19,7 +19,7 @@ def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name)
     subprocess.run(cmd, shell=True)
 
 
-def perform_backtest(inf_output_path):
+def perform_backtest(inf_output_path, optimize=False):
     """
     Perform backtest on the inference data.
 
@@ -27,8 +27,10 @@ def perform_backtest(inf_output_path):
         inf_output_path: path to the inferenced data in candlestick format
     """
 
-    
-    cmd = f"python backtesting/backtest.py --data {inf_output_path} --walk_forward 12 --optimize BollingerAI --pipeline"
+    if optimize:
+        cmd = f"python backtesting/backtest.py --data {inf_output_path} --walk_forward 12 --optimize BollingerAI --pipeline"
+    else:
+        cmd = f"python backtesting/backtest.py --data {inf_output_path} --pipeline"
     subprocess.run(cmd, shell=True)
 
 def inf_analysis(run, inf_path):
