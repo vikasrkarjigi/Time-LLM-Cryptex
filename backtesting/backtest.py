@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 
-from sharpe_calculator import calculate_sharpe_from_trade_log, calculate_sortino_from_trade_log
+from sharpe_calculator import sharpe_from_trade_log, sortino_from_trade_log
 
 from utils import load_and_prepare_data
 from strategies import (
@@ -124,24 +124,30 @@ OPTIMIZATION_RANGES = {
 }
 
 
+    
+
 class BacktestRunner:
     """Main backtesting runner using backtrader"""
     
-    def __init__(self, data_path, cash=100000, commission=0.001):
+    def __init__(self, data_path, cash=100000, commission=0.001, pipeline=False):
         self.data_path = data_path
         self.cash = cash
         self.commission = commission
         self.data = None
         self.data_feed_class = None
         self.results = {}
-        self.pipeline = False
+        self.pipeline = pipeline
         self.load_data()
+    
+    def print_db(self, text):
+        if not self.pipeline:
+            print(f"{text}")
 
     
     def load_data(self):
         """Load and prepare data"""
         self.data, self.data_feed_class = load_and_prepare_data(self.data_path)
-        print(f"Data loaded with shape: {self.data.shape} from {self.data.index.min()} to {self.data.index.max()}\n")
+        self.print_db(f"Data loaded with shape: {self.data.shape} from {self.data.index.min()} to {self.data.index.max()}\n")
     
     def run_strategy(self, strategy_name):
         """Run a single strategy"""
@@ -151,7 +157,7 @@ class BacktestRunner:
         strategy_class = STRATEGIES[strategy_name]['class']
         params = STRATEGIES[strategy_name]['params']
         
-        print(f"[Running] {strategy_name} | Params: {params}")
+        self.print_db(f"[Running] {strategy_name} | Params: {params}")
         
         # Setup cerebro
         cerebro = bt.Cerebro()
@@ -188,25 +194,22 @@ class BacktestRunner:
             'sqn': strategy_result.analyzers.sqn.get_analysis(),
         }
         
-        # Calculate manual Sharpe ratio as fallback
-        sharpe_from_analyzer = analyzer_results['sharpe'].get('sharperatio', None)
-        
         # Calculate Sharpe and Sortino ratios from trade log
         trade_log_df = strategy_result.analyzers.trade_log.get_analysis()
-        trade_sharpe = calculate_sharpe_from_trade_log(trade_log_df, periods_per_year=365*24)
-        trade_sortino = calculate_sortino_from_trade_log(trade_log_df, periods_per_year=365*24)
+        trade_sharpe = sharpe_from_trade_log(trade_log_df, periods_per_year=365*24)
+        trade_sortino = sortino_from_trade_log(trade_log_df, periods_per_year=365*24)
         
         if trade_sharpe is not None:
             analyzer_results['sharpe_trade_log'] = trade_sharpe
-            print(f"Sharpe ratio from trade log: {trade_sharpe:.4f}")
+            self.print_db(f"Sharpe ratio from trade log: {trade_sharpe:.4f}")
         else:
-            print("Could not calculate Sharpe ratio from trade log")
+            self.print_db("Could not calculate Sharpe ratio from trade log")
             
         if trade_sortino is not None:
             analyzer_results['sortino_trade_log'] = trade_sortino
-            print(f"Sortino ratio from trade log: {trade_sortino:.4f}")
+            self.print_db(f"Sortino ratio from trade log: {trade_sortino:.4f}")
         else:
-            print("Could not calculate Sortino ratio from trade log")
+            self.print_db("Could not calculate Sortino ratio from trade log")
         
         # Store results
         final_value = cerebro.broker.getvalue()
@@ -219,6 +222,9 @@ class BacktestRunner:
             'total_return': total_return,
             'analyzers': analyzer_results
         }
+
+        if self.pipeline:
+            print(f"Strategy: {strategy_name} | Sharpe: {trade_sharpe:.4f} | Sortino: {trade_sortino:.4f} | Total Trades: {len(trade_log_df)} | Total Return: {total_return:.2f}%")
         
         return cerebro, analyzer_results
     
@@ -228,13 +234,13 @@ class BacktestRunner:
             raise ValueError(f"Strategy {strategy_name} not found")
         
         if strategy_name not in OPTIMIZATION_RANGES:
-            print(f"No optimization ranges defined for {strategy_name}")
+            self.print_db(f"No optimization ranges defined for {strategy_name}")
             return
         
         strategy_class = STRATEGIES[strategy_name]['class']
         param_ranges = OPTIMIZATION_RANGES[strategy_name]
 
-        print(f"[Optimizing] {strategy_name} | Params: {param_ranges}")
+        self.print_db(f"[Optimizing] {strategy_name} | Params: {param_ranges}")
 
         # Setup cerebro
         cerebro = bt.Cerebro(maxcpus=1) # Mutliprocessing wouldn't work with custom data feed 
@@ -275,12 +281,11 @@ class BacktestRunner:
         
             # Get trade log data
             trade_log_df = strat.analyzers.trade_log.get_analysis()
-            #print(trade_log_df.head())
+
             if trade_log_df is not None:
                 full_trade_log.append(trade_log_df)
-            
-            # Calculate Sharpe and Sortino ratios from trade log            
-            
+
+
             drawdown = strat.analyzers.drawdown.get_analysis()
             max_dd = drawdown.get('max', {}).get('drawdown', 0) or 0
             
@@ -304,20 +309,22 @@ class BacktestRunner:
                 'Strategy Instance': strat
             })
 
+        # Calculate Sharpe and Sortino ratios from trade log
         full_trade_log = pd.concat(full_trade_log, axis=0, ignore_index=True)
 
+        # Sort trade log by return
         full_trade_log = full_trade_log.sort_values('return', ascending=False).reset_index(drop=True)
-        total_sharpe = calculate_sharpe_from_trade_log(full_trade_log, periods_per_year=365*24)
-        total_sortino = calculate_sortino_from_trade_log(full_trade_log, periods_per_year=365*24)
+        total_sharpe = sharpe_from_trade_log(full_trade_log, periods_per_year=365*24)
+        total_sortino = sortino_from_trade_log(full_trade_log, periods_per_year=365*24)
 
-        print(f"Total Sharpe ratio: {total_sharpe:.4f}")
-        print(f"Total Sortino ratio: {total_sortino:.4f}")
+        self.print_db(f"Total Sharpe ratio: {total_sharpe:.4f}")
+        self.print_db(f"Total Sortino ratio: {total_sortino:.4f}")
         
         df = pd.DataFrame(summary_data)
         df = df.sort_values('Sharpe Ratio', ascending=False).reset_index(drop=True)
         
-        print(f"[Optimization Results] {strategy_name}")
-        print(df.drop(columns=['Strategy Instance', 'position_size']).head(10).to_string(index=False, float_format='%.2f'))
+        self.print_db(f"[Optimization Results] {strategy_name}")
+        self.print_db(df.drop(columns=['Strategy Instance', 'position_size']).head(10).to_string(index=False, float_format='%.2f'))
 
     def run_all_strategies(self):
         """Run all available strategies"""
@@ -325,12 +332,12 @@ class BacktestRunner:
             try:
                 self.run_strategy(strategy_name)
             except Exception as e:
-                print(f"/!\\ Error running {strategy_name}: {e}")
+                self.print_db(f"/!\\ Error running {strategy_name}: {e}")
     
     def create_summary_table(self):
-        """Print summary table of all results and plot best strategy"""
+        """self.print_db summary table of all results and plot best strategy"""
         if not self.results:
-            print("No results to summarize")
+            self.print_db("No results to summarize")
             return pd.DataFrame()
         
         summary_data = []
@@ -368,16 +375,15 @@ class BacktestRunner:
         df = pd.DataFrame(summary_data)
         df = df.sort_values('Sharpe Ratio', ascending=False).reset_index(drop=True)
         
-        print("[Results]")
-        print(df.to_string(index=False, float_format='%.2f'))
+        self.print_db("[Results]")
+        self.print_db(df.to_string(index=False, float_format='%.2f'))
 
         # Show plot for best strategy or single strategy
         strategy_to_plot = df.iloc[0]['Strategy']
         cerebro = self.results[strategy_to_plot]['cerebro']
 
-        if not self.pipeline: # Only plot if not from pipeline
-            print(f"\n[Plot] Showing {strategy_to_plot}")
-            cerebro.plot(style='candlestick', barup='green', bardown='red')
+        self.print_db(f"\n[Plot] Showing {strategy_to_plot}")
+        cerebro.plot(style='candlestick', barup='green', bardown='red')
 
         return df
     
@@ -395,14 +401,14 @@ class BacktestRunner:
             raise ValueError(f"Strategy {strategy_name} not found")
         
         if strategy_name not in OPTIMIZATION_RANGES:
-            print(f"No optimization ranges defined for {strategy_name}")
+            self.print_db(f"No optimization ranges defined for {strategy_name}")
             return
         
         strategy_class = STRATEGIES[strategy_name]['class']
         param_ranges = OPTIMIZATION_RANGES[strategy_name]
         
-        print(f"[Walk Forward Optimization] {strategy_name}")
-        print(f"Training: {train_days} days | Testing: {test_days} days | Step: {step_days} days")
+        self.print_db(f"[Walk Forward Optimization] {strategy_name}")
+        self.print_db(f"Training: {train_days} days | Testing: {test_days} days | Step: {step_days} days")
         
         # Convert data index to datetime if it isn't already
         data_index = pd.to_datetime(self.data.index)
@@ -436,20 +442,20 @@ class BacktestRunner:
         all_test_trades = []
         
         for i, period in tqdm.tqdm(enumerate(periods), total=len(periods), desc="Processing periods...", ncols=100, leave=False):
-            # print(f"\n--- Period {i+1}/{len(periods)} ---")
-            # print(f"Train: {period['train_start'].strftime('%Y-%m-%d')} to {period['train_end'].strftime('%Y-%m-%d')}")
-            # print(f"Test:  {period['test_start'].strftime('%Y-%m-%d')} to {period['test_end'].strftime('%Y-%m-%d')}")
+            # self.print_db(f"\n--- Period {i+1}/{len(periods)} ---")
+            # self.print_db(f"Train: {period['train_start'].strftime('%Y-%m-%d')} to {period['train_end'].strftime('%Y-%m-%d')}")
+            # self.print_db(f"Test:  {period['test_start'].strftime('%Y-%m-%d')} to {period['test_end'].strftime('%Y-%m-%d')}")
             
             # Get training data
             train_mask = (data_index >= period['train_start']) & (data_index < period['train_end'])
             train_data = self.data[train_mask]
             
             # if len(train_data) < 30:  # Skip if insufficient training data
-            #     print("Insufficient training data, skipping...")
+            #     self.print_db("Insufficient training data, skipping...")
             #     continue
             
             # Optimize on training data
-            # print("Optimizing on training data...")
+            # self.print_db("Optimizing on training data...")
             cerebro_opt = bt.Cerebro(maxcpus=1)
             cerebro_opt.optstrategy(strategy_class, **param_ranges)
             
@@ -464,7 +470,7 @@ class BacktestRunner:
             opt_results = cerebro_opt.run()
             
             # Find best parameters based on Sharpe ratio
-            best_sharpe = -999
+            best_sharpe = -99999
             best_params = None
             
             for strat_list in opt_results:
@@ -477,20 +483,20 @@ class BacktestRunner:
                     best_params = strat.params._getkwargs()
             
             if best_params is None:
-                print("No valid optimization results, skipping...")
+                self.print_db("No valid optimization results, skipping...")
                 continue
             
-            # print(f"Best params: {best_params} (Sharpe: {best_sharpe:.3f})")
+            # self.print_db(f"Best params: {best_params} (Sharpe: {best_sharpe:.3f})")
             
             # Test on out-of-sample data
             test_mask = (data_index >= period['test_start']) & (data_index < period['test_end'])
             test_data = self.data[test_mask]
             
             # if len(test_data) < 10:  # Skip if insufficient test data
-            #     print("Insufficient test data, skipping...")
+            #     self.print_db("Insufficient test data, skipping...")
             #     continue
             
-            # print("Testing on out-of-sample data...")
+            # self.print_db("Testing on out-of-sample data...")
             cerebro_test = bt.Cerebro()
             cerebro_test.addstrategy(strategy_class, **best_params)
             
@@ -562,26 +568,25 @@ class BacktestRunner:
             cumulative_return = (cumulative_return - 1) * 100
             
 
-            if not self.pipeline: # Only print summary if not from pipeline
-                print(f"[Walk Forward Summary] {strategy_name}")
-                print(f"Total Periods: {total_periods}")
-                print(f"Positive Periods: {positive_periods}/{total_periods} ({win_rate_periods:.1f}%)")
-                print(f"Average Test Return: {avg_test_return:.2f}%")
-                print(f"Cumulative Return: {cumulative_return:.2f}%")
-                print(f"Average Sharpe Ratio: {avg_test_sharpe:.3f}")
-                print(f"Average Max Drawdown: {avg_test_dd:.2f}%")
+            self.print_db(f"[Walk Forward Summary] {strategy_name}")
+            self.print_db(f"Total Periods: {total_periods}")
+            self.print_db(f"Positive Periods: {positive_periods}/{total_periods} ({win_rate_periods:.1f}%)")
+            self.print_db(f"Average Test Return: {avg_test_return:.2f}%")
+            self.print_db(f"Cumulative Return: {cumulative_return:.2f}%")
+            self.print_db(f"Average Sharpe Ratio: {avg_test_sharpe:.3f}")
+            self.print_db(f"Average Max Drawdown: {avg_test_dd:.2f}%")
+        
+            self.print_db(f"\n[Period Details]")
+            display_df = wf_df[['period', 'test_start', 'test_end', 'test_return_pct', 
+                            'test_sharpe', 'test_max_dd_pct', 'test_trades']].copy()
+            display_df['test_start'] = display_df['test_start'].dt.strftime('%Y-%m-%d')
+            display_df['test_end'] = display_df['test_end'].dt.strftime('%Y-%m-%d')
             
-                print(f"\n[Period Details]")
-                display_df = wf_df[['period', 'test_start', 'test_end', 'test_return_pct', 
-                                'test_sharpe', 'test_max_dd_pct', 'test_trades']].copy()
-                display_df['test_start'] = display_df['test_start'].dt.strftime('%Y-%m-%d')
-                display_df['test_end'] = display_df['test_end'].dt.strftime('%Y-%m-%d')
-                
-                print(display_df.to_string(index=False, float_format='%.2f'))
-            
+            self.print_db(display_df.to_string(index=False, float_format='%.2f'))
+        
             return wf_df
         else:
-            print("No valid walk-forward periods completed")
+            self.print_db("No valid walk-forward periods completed")
             return pd.DataFrame()
     
 
@@ -600,9 +605,7 @@ def main():
     
     args = parser.parse_args()
     
-    runner = BacktestRunner(args.data, cash=args.cash, commission=args.commission)
-    
-    runner.pipeline = args.pipeline
+    runner = BacktestRunner(args.data, cash=args.cash, commission=args.commission, pipeline=args.pipeline)
     
     if args.optimize:
         # Optimize specific strategy

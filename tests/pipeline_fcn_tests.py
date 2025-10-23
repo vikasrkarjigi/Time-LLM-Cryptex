@@ -15,4 +15,4 @@ def test_inf_analysis():
 
 def test_backtest_pipeline():
     run = None
-    print(f"Backtest pipeline: {perform_backtest(TEST_PATH)}")
+    print(f"Backtest pipeline: {perform_backtest(TEST_PATH, optimize=False)}")
