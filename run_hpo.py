@@ -23,7 +23,7 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = f"http://{MLFLOW_SERVER_IP}:9000"
 
 # Optuna
 llm_model = "LLAMA3.1"
-N_TRIALS = 50
+N_TRIALS = 1
 OPTUNA_STORAGE_PATH = f"sqlite:////data-fast/nfs/mlflow/"
 
 def parse_args():
@@ -134,10 +134,10 @@ def set_optuna_vars(trial,data_path):
     vars_dict = {}
 
     vars_dict["features"] = trial.suggest_categorical("features", ["S", "S"])
-    vars_dict["seq_len"] = trial.suggest_categorical("seq_len", [24, 24])
-    vars_dict["pred_len"] = trial.suggest_categorical("pred_len", [2, 2])
+    vars_dict["seq_len"] = trial.suggest_categorical("seq_len", [168, 168])
+    vars_dict["pred_len"] = trial.suggest_categorical("pred_len", [24, 48])
     vars_dict["num_tokens"] = trial.suggest_categorical("num_tokens", [100, 500, 1000])
-    vars_dict["loss"] = trial.suggest_categorical("loss", ["MADLSTE", "MADLSTE"])
+    vars_dict["loss"] = trial.suggest_categorical("loss", ["MSE", "MSE"])
     vars_dict["lradj"] = trial.suggest_categorical("lradj", ["type1", "type2", "type3", "PEMS", "TST", "constant"])
 
     vars_dict["n_heads"] = trial.suggest_categorical("n_heads", [2, 4, 8, 16])

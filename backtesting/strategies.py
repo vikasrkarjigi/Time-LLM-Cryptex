@@ -22,7 +22,6 @@ class BaseAIStrategy(bt.Strategy):
         
         # Trick to include raw predictions in the plot
         pred_plot = bt.indicators.SimpleMovingAverage(self.prediction, period=1, plotname=f'Raw Prediction {self.params.prediction_horizon}')
-
         
     
     def get_prediction_signal(self):
@@ -51,7 +50,6 @@ class BaseAIStrategy(bt.Strategy):
         price = self.data.close[0]
         size = (cash / price) * self.params.position_size
         return round(size, 8)
-
 
 class SimpleAIStrategy(BaseAIStrategy):
     """Simple AI strategy that trades based on predictions"""

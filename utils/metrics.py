@@ -184,3 +184,16 @@ class MADLLossSTE(nn.Module):
         loss = (-1.0) * product_sign_ste * abs_return
         
         return loss.mean()
+
+class MDAChange(nn.Module):
+    """
+    Computes accuracy of price changing direction over the prediction period.
+    """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred: torch.Tensor, true: torch.Tensor) -> torch.Tensor:
+        """
+        
+        pred, true: [batch, seq_len] (predicted and true prices)
+        """

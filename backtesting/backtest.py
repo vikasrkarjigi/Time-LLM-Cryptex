@@ -223,8 +223,6 @@ class BacktestRunner:
             'analyzers': analyzer_results
         }
 
-        if self.pipeline:
-            print(f"Strategy: {strategy_name} | Sharpe: {trade_sharpe:.4f} | Sortino: {trade_sortino:.4f} | Total Trades: {len(trade_log_df)} | Total Return: {total_return:.2f}%")
         
         return cerebro, analyzer_results
     
@@ -383,7 +381,9 @@ class BacktestRunner:
         cerebro = self.results[strategy_to_plot]['cerebro']
 
         self.print_db(f"\n[Plot] Showing {strategy_to_plot}")
-        cerebro.plot(style='candlestick', barup='green', bardown='red')
+
+        if not self.pipeline:
+            cerebro.plot(style='candlestick', barup='green', bardown='red')
 
         return df
     
@@ -626,7 +626,10 @@ def main():
     else:
         # Run all strategies
         runner.run_all_strategies()
-        runner.create_summary_table()
+        summary_table = runner.create_summary_table()
+        print(summary_table)
+        if runner.pipeline:
+            summary_table.to_csv("summary_table.csv", index=False)
 
 if __name__ == "__main__":
     main()

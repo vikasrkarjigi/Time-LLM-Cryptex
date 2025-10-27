@@ -2,6 +2,8 @@ import subprocess
 import pandas as pd
 import numpy as np
 import mlflow
+import os
+import sqlite3
 
 def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name):
     """
@@ -31,7 +33,17 @@ def perform_backtest(inf_output_path, optimize=False):
         cmd = f"python backtesting/backtest.py --data {inf_output_path} --walk_forward 12 --optimize BollingerAI --pipeline"
     else:
         cmd = f"python backtesting/backtest.py --data {inf_output_path} --pipeline"
+
     subprocess.run(cmd, shell=True)
+
+    summary_table = pd.read_csv("summary_table.csv")
+    print(summary_table)
+    if os.path.exists("summary_table.csv"):
+        os.remove("summary_table.csv")
+    return summary_table
+
+
+
 
 def inf_analysis(run, inf_path):
     """
