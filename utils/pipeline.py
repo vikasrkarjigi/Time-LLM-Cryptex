@@ -4,6 +4,7 @@ import numpy as np
 import mlflow
 import os
 import sqlite3
+import json
 
 def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name):
     """
@@ -37,9 +38,11 @@ def perform_backtest(inf_output_path, optimize=False):
     subprocess.run(cmd, shell=True)
 
     summary_table = pd.read_csv("summary_table.csv")
+    
+    
+    print("SUMMARY TABLE:\n")
     print(summary_table)
-    if os.path.exists("summary_table.csv"):
-        os.remove("summary_table.csv")
+    print("\n")
     return summary_table
 
 
@@ -75,6 +78,79 @@ def inf_analysis(run, inf_path):
         mda_vals[f'inf_pred_{pred}_mda'] = mda
 
     return mda_vals
+
+
+def create_metrics_json(mlflow_run_id, llm_model, experiment_name, summary_table, mda_vals, trial_dict):
+    """
+    Create the metrics dataframe.
+
+    args:
+        summary_table: summary table
+        mda_vals: mda values
+    """
+    metrics_dict = {}
+
+    # Creates two metrics. The next candle prediction and the last candle prediction.
+
+    metrics_dict["mlflow_run_id"] = mlflow_run_id
+    metrics_dict["llm_model"] = llm_model
+    metrics_dict["experiment_name"] = experiment_name
+    metrics_dict["summary_table"] = summary_table.to_dict()
+    metrics_dict["trial_parameters"] = trial_dict
+    metrics_dict["inference_metrics"] = mda_vals
+
+    metrics_json = json.dumps(metrics_dict)
+
+    return metrics_json
+
+def metrics_to_db(metrics_db_path, model_id, metrics_json):
+    """
+    Save metrics to the database as a JSON string.
+    This is done to avoid the need to create a new table for each model.
+    The metrics are stored in a JSON string so that they can be easily queried and analyzed.
+
+    Args:
+        metrics_db_path: path to the metrics database
+        model_id: unique model identifier (primary key)
+        metrics_json: dict of metrics (will be stored as JSON)
+    """
+
+    # Connects to the database
+    db = sqlite3.connect(metrics_db_path)
+    cursor = db.cursor()
+
+    try:
+        # Creates the table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metrics (
+                model_id TEXT PRIMARY KEY,
+                metrics JSON
+            )
+        """)
+    except Exception as e:
+        print(f"Failed to create metrics table in {metrics_db_path}: \n{e}")
+        raise ValueError(f"Failed to create metrics table in {metrics_db_path}: \n{e}")
+
+    try:
+        # Creates the table if it doesn't exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS metrics (
+                model_id TEXT PRIMARY KEY,
+                metrics JSON
+            )
+        """)
+    except Exception as e:
+        print(f"Failed to insert metrics into {metrics_db_path}: \n{e}")
+        raise ValueError(f"Failed to insert metrics into {metrics_db_path}")
+
+    # Inserts the metrics into the database
+    cursor.execute("""
+        INSERT OR REPLACE INTO metrics (model_id, metrics)
+        VALUES (?, ?)
+    """, (model_id, json.dumps(metrics_json)))
+
+    db.commit()
+    db.close()
 
 
 def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=True, log_returns=False):

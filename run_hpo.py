@@ -1,4 +1,5 @@
 import optuna
+import pandas as pd
 import subprocess
 import sys
 import mlflow
@@ -7,7 +8,7 @@ import time
 import os
 import argparse
 from datetime import datetime
-from utils.pipeline import perform_inference, perform_backtest, inf_analysis, convert_to_returns, convert_back_to_candlesticks
+from utils.pipeline import perform_inference, perform_backtest, inf_analysis, convert_to_returns, convert_back_to_candlesticks, metrics_to_db, create_metrics_json
 
 import warnings
 
@@ -23,8 +24,9 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = f"http://{MLFLOW_SERVER_IP}:9000"
 
 # Optuna
 llm_model = "LLAMA3.1"
-N_TRIALS = 1
-OPTUNA_STORAGE_PATH = f"sqlite:////data-fast/nfs/mlflow/"
+N_TRIALS = 10
+OPTUNA_STORAGE_PATH = "sqlite:////data-fast/nfs/mlflow/"
+METRICS_DB_PATH = "sqlite:////data-fast/nfs/mlflow/metrics.db"
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -64,6 +66,18 @@ def _find_mlflow_run(client, experiment_name, model_id):
 
 
 def create_train_cmd(trial_dict, model_id, data_path, root_path):
+    """
+    Creates the command to train the model and returns it as a list.
+
+    args:
+        trial_dict: dictionary of trial parameters
+        model_id: model id
+        data_path: path to the data
+        root_path: path to the root
+    
+    returns:
+        cmd (list): command to train the model
+    """
     cmd = [
         'accelerate', 'launch', '--multi_gpu', '--mixed_precision', 'bf16', '--num_processes', '4', '--main_process_port', '29500',
         'run_main.py',
@@ -99,6 +113,16 @@ def create_train_cmd(trial_dict, model_id, data_path, root_path):
 
 def set_optuna_vars(trial,data_path):
     """
+    Sets the optuna variables.
+
+    args:
+        trial: trial object
+        data_path: path to the data
+    
+    returns:
+        vars_dict (dict): dictionary of trial parameters
+    """
+    """
     For some context, here is the correlation matrix between (some) hyperparameters and return:
     llm_layers            -0.01203
     sequence              -0.21257
@@ -131,11 +155,12 @@ def set_optuna_vars(trial,data_path):
     stride = trial.suggest_categorical("stride", [6, 12])
     epochs = trial.suggest_categorical("epochs", [10, 10])"""
 
+    # Sets the variables dictionary
     vars_dict = {}
 
     vars_dict["features"] = trial.suggest_categorical("features", ["S", "S"])
-    vars_dict["seq_len"] = trial.suggest_categorical("seq_len", [168, 168])
-    vars_dict["pred_len"] = trial.suggest_categorical("pred_len", [24, 48])
+    vars_dict["seq_len"] = trial.suggest_categorical("seq_len", [24, 24])
+    vars_dict["pred_len"] = trial.suggest_categorical("pred_len", [2, 2])
     vars_dict["num_tokens"] = trial.suggest_categorical("num_tokens", [100, 500, 1000])
     vars_dict["loss"] = trial.suggest_categorical("loss", ["MSE", "MSE"])
     vars_dict["lradj"] = trial.suggest_categorical("lradj", ["type1", "type2", "type3", "PEMS", "TST", "constant"])
@@ -177,6 +202,66 @@ def set_optuna_vars(trial,data_path):
         vars_dict["experiment_name"] = llm_model
 
     return vars_dict
+
+def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, root_path, trial_dict, experiment_name):
+    """
+    Runs the pipeline for the model if the inference path is provided.
+    It logs the MDA metric for the first candle, the parameters, and the summary table to the metrics database.
+    Also logs the summary table to the MLflow run.
+
+    Args:
+        run: MLflow run object
+        metrics_db_path: path to the metrics database
+        model_id: model id
+        llm_model: llm model
+        args: arguments
+        inf_path: path to the inference data
+        root_path: path to the root
+        trial_dict: dictionary of trial parameters
+        experiment_name: experiment name
+    """
+
+    save_path = f"{root_path}inference"      # Folder name for the inference data
+    inf_output_path = save_path + "/inference.csv"      # Path to the inference data
+
+    # Checks to run inference if the inference path is provided
+    # As well checks if the returns flag is set and converts the data back to candlesticks
+    if args.inf_path is not None:
+        try:
+            # MDA Metrics for the inference data
+            mda_vals = perform_inference(model_id, llm_model, inf_path, save_path = save_path, experiment_name = experiment_name)
+            print(f"MDA Metrics for the inference data: {mda_vals}")
+
+            try:
+                mlflow.log_metric(f"inf_mda_1_candle", mda_vals['inf_mda_1_candle'], run_id = run.info.run_id) # Logs the MDA metric for the first candle
+            except Exception as e:
+                print(f"\nError logging MDA metric for the first candle:\n {e}\n\n")
+
+            if args.returns: # Converts the inference data back to candlesticks if the returns flag is set
+                convert_back_to_candlesticks(inf_path, inf_output_path, root_path, num_predictions = trial_dict['pred_len']) # Converts the inference data back to candlesticks
+            
+            # Performs the backtest if the backtest flag is set
+            if args.backtest:   
+                try:
+                    perform_backtest(inf_output_path) # Performs backtest and creates the summary table
+                    summary_table = pd.read_csv("summary_table.csv")
+
+                    # creates the metrics json
+                    metrics_json = create_metrics_json(run.info.run_id,llm_model, experiment_name, summary_table, mda_vals, trial_dict)
+                    # saves the metrics to the database
+                    metrics_to_db(metrics_db_path, model_id, metrics_json)
+
+                    mlflow.log_artifact("backtest_summary_table", "summary_table.csv", run_id = run.info.run_id)
+
+                    # Removes the summary table file
+                    if os.path.exists("summary_table.csv"):
+                        os.remove("summary_table.csv")
+
+                except Exception as e:
+                    print(f"\nBacktest failed: \n\n{e}\n")  
+        except Exception as e:
+            print(f"\nInference failed: {e}\n")
+
 
 # --- 1. Define the Objective Function ---
 # This function defines a single experiment run. Optuna will call it multiple times.
@@ -252,35 +337,14 @@ def objective(trial):
             raise optuna.exceptions.TrialPruned(f"Metric '{validation_metric_key}' not found.")
             
         final_metric = latest_metrics[validation_metric_key]
-        print(f"Latest Metrics: {latest_metrics}")
         
         print(f"--- Trial {trial.number} Finished ---")
         print(f"Validation Metric ({validation_metric_key}): {final_metric}\n")
 
-        save_path = f"{root_path}inference"      # Folder name for the inference data
-        inf_output_path = save_path + "/inference.csv"      # Path to the inference data
         
         # This section checks to run inference if the inference path is provided
         # As well checks if the returns flag is set and converts the data back to candlesticks
-        to_artifact = []
-        if args.inf_path:
-            try:
-                perform_inference(model_id, llm_model, inf_path, save_path = save_path, experiment_name = experiment_name)
-                
-                if args.returns:
-                    convert_back_to_candlesticks(inf_path, inf_output_path, root_path, num_predictions = trial_dict['pred_len'])
-
-                to_artifact.append(inf_analysis(run, inf_output_path))
-
-
-            except Exception as e:
-                print(f"\nInference failed: {e}\n")
-
-        if args.backtest:   # Performs the backtest if the backtest flag is set
-            try:
-                perform_backtest(inf_output_path)
-            except Exception as e:
-                print(f"\nBacktest failed: {e}\n")  
+        run_pipeline(run, METRICS_DB_PATH, model_id, llm_model, args, inf_path, root_path, trial_dict, experiment_name)
 
         # Checks if the validation metric is 0
         if final_metric == 0:
@@ -325,6 +389,9 @@ if __name__ == "__main__":
             OPTUNA_STORAGE_PATH += f"{args.db_name}"
     else:
         OPTUNA_STORAGE_PATH += f"optuna_study.db"
+
+    if args.gpu != '1':
+        METRICS_DB_PATH = f"sqlite:////mnt/nfs/mlflow/metrics.db"
 
     print(f"OPTUNA_STORAGE_PATH: {OPTUNA_STORAGE_PATH}")
 
