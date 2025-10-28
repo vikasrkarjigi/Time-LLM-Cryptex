@@ -8,6 +8,8 @@ import time
 import os
 import argparse
 from datetime import datetime
+import yaml
+from pathlib import Path
 from utils.pipeline import perform_inference, perform_backtest, inf_analysis, convert_to_returns, convert_back_to_candlesticks, metrics_to_db, create_metrics_json
 
 import warnings
@@ -26,7 +28,7 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = f"http://{MLFLOW_SERVER_IP}:9000"
 llm_model = "LLAMA3.1"
 N_TRIALS = 10
 OPTUNA_STORAGE_PATH = "sqlite:////data-fast/nfs/mlflow/"
-METRICS_DB_PATH = "sqlite:////data-fast/nfs/mlflow/metrics.db"
+METRICS_DB_PATH = "/data-fast/nfs/mlflow/metrics.db"
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -156,52 +158,77 @@ def set_optuna_vars(trial,data_path):
     epochs = trial.suggest_categorical("epochs", [10, 10])"""
 
     # Sets the variables dictionary
-    vars_dict = {}
 
-    vars_dict["features"] = trial.suggest_categorical("features", ["S", "S"])
-    vars_dict["seq_len"] = trial.suggest_categorical("seq_len", [24, 24])
-    vars_dict["pred_len"] = trial.suggest_categorical("pred_len", [2, 2])
-    vars_dict["num_tokens"] = trial.suggest_categorical("num_tokens", [100, 500, 1000])
-    vars_dict["loss"] = trial.suggest_categorical("loss", ["MSE", "MSE"])
-    vars_dict["lradj"] = trial.suggest_categorical("lradj", ["type1", "type2", "type3", "PEMS", "TST", "constant"])
 
-    vars_dict["n_heads"] = trial.suggest_categorical("n_heads", [2, 4, 8, 16])
-    vars_dict["d_ff"] = trial.suggest_categorical("d_ff", [32, 64, 128, 256])
-    vars_dict["batch_size"] = trial.suggest_categorical("batch_size", [8, 8])
-    vars_dict["patch_len"] = trial.suggest_categorical("patch_len", [12, 12])
-    vars_dict["stride"] = trial.suggest_categorical("stride", [2, 2])
-    vars_dict["epochs"] = trial.suggest_categorical("epochs", [1, 2])
+def set_optuna_vars(trial, data_path, args):
+    with open(Path("config/optuna_vars.yaml"), "r") as f:
+        config = yaml.safe_load(f)
 
-    # Integer parameters: Optuna will choose an integer within the range.
-    vars_dict["llm_layers"] = trial.suggest_int("llm_layers", 4, 6)
-    vars_dict["d_model"] = trial.suggest_int("d_model", 16, 64, step=16) # Suggests 16, 32, 48, 64
+    params = {}
 
+    # Categorical parameters
+    for name, values in config.get("categorical", {}).items():
+        if len(values) == 1:
+            params[name] = trial.suggest_categorical(name, values * 2)
+        else:
+            params[name] = trial.suggest_categorical(name, values)
+
+    # Int parameters
+    for name, cfg in config.get("int", {}).items():
+        if "step" in cfg:
+            params[name] = trial.suggest_int(
+            name,
+            int(cfg["low"]),
+            int(cfg["high"]),
+            step=int(cfg.get("step", 1))
+        )
+        else:
+            params[name] = trial.suggest_int(
+                name,
+                int(cfg["low"]),
+                int(cfg["high"])
+            )
 
     # Float parameters
-    vars_dict["dropout"] = trial.suggest_float("dropout", 0.0, 0.5, step=0.1)
-    vars_dict["pct_start"] = trial.suggest_float("pct_start", 0.1, 0.5, step=0.1)
+    for name, cfg in config.get("float", {}).items():
+        # If step is provided, use it to suggest the float parameter
+        if "step" in cfg:
+            params[name] = trial.suggest_float(
+                name,
+                float(cfg["low"]),
+                float(cfg["high"]),
+                step=float(cfg.get("step", 1))
+            )
+        else:
+            # If step is not provided, use the log flag to suggest the float parameter
+            params[name] = trial.suggest_float(
+                name,
+                float(cfg["low"]),
+                float(cfg["high"]),
+                log=cfg.get("log", False)
+            )
 
-    # Logarithmic uniform parameters: Good for searching learning rates.
-    vars_dict["learning_rate"] = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
+    for name, cfg in config.get("log_float", {}).items():
+        params[name] = trial.suggest_float(
+            name,
+            float(cfg["low"]),
+            float(cfg["high"])
+            )
 
-    # Set the dataset name based on the data path
-    vars_dict["dataset"] = data_path.split("/")[-1]
 
-    # Set user attributes for the trial based on the data path
-    trial.set_user_attr("dataset", vars_dict["dataset"])
+    params["dataset"] = data_path.split("/")[-1]
+    params["target"] = "returns" if args.returns else "close"
+    params["metric"] = "MDA"
+    params["experiment_name"] = args.experiment_name or llm_model
+
+    trial.set_user_attr("dataset", params["dataset"])
     trial.set_user_attr("granularity", data_path.split("/")[-2])
-    trial.set_user_attr("target", "returns" if args.returns else "close")
-    vars_dict["target"] = "returns" if args.returns else "close"
+    trial.set_user_attr("target", params["target"])
     trial.set_user_attr("data_type", "returns" if args.returns else "ohlcv")
     trial.set_user_attr("metric", "MDA")
-    vars_dict["metric"] = "MDA"
 
-    if args.experiment_name:
-        vars_dict["experiment_name"] = args.experiment_name
-    else:
-        vars_dict["experiment_name"] = llm_model
+    return params
 
-    return vars_dict
 
 def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, root_path, trial_dict, experiment_name):
     """
@@ -251,7 +278,7 @@ def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, root
                     # saves the metrics to the database
                     metrics_to_db(metrics_db_path, model_id, metrics_json)
 
-                    mlflow.log_artifact("backtest_summary_table", "summary_table.csv", run_id = run.info.run_id)
+                    mlflow.log_artifact("summary_table.csv", "summary_table.csv", run_id = run.info.run_id)
 
                     # Removes the summary table file
                     if os.path.exists("summary_table.csv"):
@@ -273,7 +300,7 @@ def objective(trial):
     """
 
     # Sets the optuna variables
-    trial_dict = set_optuna_vars(trial, args.data_path)
+    trial_dict = set_optuna_vars(trial, args.data_path, args)
 
 
     if args.root_path[-1] != '/':
@@ -391,7 +418,7 @@ if __name__ == "__main__":
         OPTUNA_STORAGE_PATH += f"optuna_study.db"
 
     if args.gpu != '1':
-        METRICS_DB_PATH = f"sqlite:////mnt/nfs/mlflow/metrics.db"
+        METRICS_DB_PATH = f"/mnt/nfs/mlflow/metrics.db"
 
     print(f"OPTUNA_STORAGE_PATH: {OPTUNA_STORAGE_PATH}")
 

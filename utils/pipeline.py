@@ -116,6 +116,7 @@ def metrics_to_db(metrics_db_path, model_id, metrics_json):
     """
 
     # Connects to the database
+    print(f"Connecting to the metrics database at {metrics_db_path}\n\n")
     db = sqlite3.connect(metrics_db_path)
     cursor = db.cursor()
 
