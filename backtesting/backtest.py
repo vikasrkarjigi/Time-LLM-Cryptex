@@ -627,9 +627,11 @@ def main():
         # Run all strategies
         runner.run_all_strategies()
         summary_table = runner.create_summary_table()
-        print(summary_table)
         if runner.pipeline:
             summary_table.to_csv("summary_table.csv", index=False)
+        else:
+            print(summary_table)
+
 
 if __name__ == "__main__":
     main()

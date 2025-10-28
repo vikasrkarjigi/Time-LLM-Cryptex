@@ -5,6 +5,7 @@ import mlflow
 import os
 import sqlite3
 import json
+from pathlib import Path
 
 def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name):
     """
@@ -16,8 +17,11 @@ def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name)
         inf_path: path to the inference data
         save_path: path to save the inference data
     """
-    print(f"\nRunning inference for {model_id} with {llm_model} on {inf_path}\n")
-    
+    print("\n==============================================")
+    print(f"\nRunning inference for {model_id} with {llm_model} on {inf_path}")
+    print("\n==============================================")
+
+
     cmd = f"python run_inference.py --model_id {model_id} --llm_model {llm_model} --data_path {inf_path} --save_path {save_path} --experiment_name {experiment_name}"
     subprocess.run(cmd, shell=True)
 
@@ -39,10 +43,6 @@ def perform_backtest(inf_output_path, optimize=False):
 
     summary_table = pd.read_csv("summary_table.csv")
     
-    
-    print("SUMMARY TABLE:\n")
-    print(summary_table)
-    print("\n")
     return summary_table
 
 
@@ -150,6 +150,7 @@ def metrics_to_db(metrics_db_path, model_id, metrics_json):
         VALUES (?, ?)
     """, (model_id, json.dumps(metrics_json)))
 
+    print(f"Metrics inserted into {metrics_db_path} for model {model_id}")
     db.commit()
     db.close()
 
@@ -170,8 +171,10 @@ def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=Tr
     # Checks if the data path is a file or a directory and saves the output path accordingly
 
     try:
-        data = pd.read_csv(root_path + data_path)
-        output_path = data_path.split(".")[0] + "_returns.csv"
+        print(f"Reading data from {Path(root_path) / data_path}")
+        data = pd.read_csv(Path(root_path) / data_path)
+        output_path = data_path.with_stem(data_path.stem + "_returns").with_suffix(".csv")
+        print(f"Saving data to {output_path}")  
     except:
         raise ValueError(f"Data path {data_path} is not a valid file or directory.")
 
@@ -195,9 +198,9 @@ def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=Tr
 
     final_data["timestamp"] = data["timestamp"]
 
-    final_data.to_csv(root_path + output_path, index=False)
+    final_data.to_csv(Path(root_path) / output_path, index=False)
 
-    return output_path
+    return Path(output_path)
 
 def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_path, num_predictions):
     """
@@ -208,16 +211,28 @@ def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_
         original_data_path: path to the original candlestick data 
         inferenced_data_path: path to save the inferenced data
     """
-    candlesticks = pd.read_csv(root_path + original_data_path)
-    predicted_returns = pd.read_csv(root_path + inferenced_data_path)
+    if not os.path.exists(Path(inferenced_data_path)):
+        raise ValueError(f"Inference data path {inferenced_data_path} does not exist.")
+
+    if not os.path.exists(Path(root_path) / original_data_path):
+        raise ValueError(f"Original data path {Path(root_path) / original_data_path} does not exist.")
+
+    candlesticks = pd.read_csv(Path(root_path) / original_data_path)
+    predicted_returns = pd.read_csv(Path(inferenced_data_path))
+
     # Make a copy of the candlesticks data
     result = candlesticks.copy()
     
     # Get the last known close price before predictions start
-    last_close = result.loc[result.index[predicted_returns['returns_predicted_1'].first_valid_index()-1], 'close']
+    print(f"Predicted returns: {predicted_returns.head()}")
+    try:
+        last_close = result.loc[result.index[predicted_returns['returns_predicted_1'].first_valid_index()-1], 'close']
+    except Exception as e:
+        print(f"Error getting last close price: {e}")
+        raise ValueError(f"Error getting last close price: {e}")
 
-
-    for i in range(1, num_predictions+1):  # For returns_predicted_1 and returns_predicted_2
+    for i in range(1, num_predictions+1):  
+        print(f"i: {i}")
         col = f'returns_predicted_{i}'
         if col in predicted_returns.columns:
             # Calculate cumulative returns 
@@ -225,13 +240,15 @@ def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_
             # Rename column
             result[f'close_predicted_{i}'] = pred_close
 
+    
+
     # Convert unix timestamp to UTC datetime
     result["timestamp"] = pd.to_datetime(result["timestamp"], unit='s', utc=True)
 
-    result.to_csv(inferenced_data_path, index=False)
-    print(f"Predicted returns saved to {inferenced_data_path}")
+    result.to_csv(Path(inferenced_data_path), index=False)
+    print(f"Predicted returns saved to {Path(inferenced_data_path)}")
 
-    return inferenced_data_path
+    return Path(inferenced_data_path)
     
 
 

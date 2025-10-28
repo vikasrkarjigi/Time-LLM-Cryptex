@@ -1,3 +1,33 @@
+
+# For some context, here is the correlation matrix between (some) hyperparameters and return:
+# llm_layers            -0.01203
+# sequence              -0.21257
+# prediction            -0.01400
+# patch                 -0.27668
+# stride                -0.31313
+# vocab_size             0.08179
+# llm_model_DEEPSEEK    -0.02113
+# llm_model_LLAMA3.1     0.07906
+# llm_model_MISTRAL     -0.09232
+# llm_model_QWEN         0.05585
+# features_MS           -0.08478
+# features_S             0.08478    
+
+## Old parameters 
+# features: "S", "MS", "M"
+# seq_len: 72, 96, 120
+# pred_len: 2
+# num_tokens: 100, 500, 1000
+# loss: "MSE", "MADL", "GMADL", "MADLSTE"
+# lradj: "type1", "type2", "type3", "PEMS", "TST", "constant"
+# n_heads: 2, 4, 8, 16
+# d_ff: 32, 64, 128, 256
+# batch_size: 8, 16, 32
+# patch_len: 12, 16, 24
+# stride: 6, 12
+# epochs: 10
+
+
 categorical:
   features: ["S"]
   seq_len: [24]

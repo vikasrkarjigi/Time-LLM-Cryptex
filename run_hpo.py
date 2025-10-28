@@ -11,7 +11,7 @@ from datetime import datetime
 import yaml
 from pathlib import Path
 from utils.pipeline import perform_inference, perform_backtest, inf_analysis, convert_to_returns, convert_back_to_candlesticks, metrics_to_db, create_metrics_json
-
+import pathlib
 import warnings
 
 # --- Centralized Configuration ---
@@ -42,6 +42,7 @@ def parse_args():
     parser.add_argument('--backtest', action='store_true', help='If set, run backtest after training')
     parser.add_argument('--root_path', type=str, default='./dataset/cryptex/', help='Root path to use. Root path already exists in ./dataset/cryptex/')
     parser.add_argument('--experiment_name', type=str, default=None, help='Experiment name to use. Default is None.')
+    parser.add_argument('--trials', type=int, default=10, help='Number of trials to run.')
     return parser.parse_args()
   
 
@@ -61,8 +62,6 @@ def _find_mlflow_run(client, experiment_name, model_id):
     if not runs:
         print(f"Warning: Could not find MLflow run with model_id {model_id}")
         return None # pruned
-
-    print(f"Runs: {runs}")
     
     return runs[0]
 
@@ -105,63 +104,17 @@ def create_train_cmd(trial_dict, model_id, data_path, root_path):
         # Static Parameters
         '--llm_model', llm_model,
         '--data', 'CRYPTEX',
-        '--root_path', root_path,
-        '--data_path', data_path,
+        '--root_path', str(root_path),
+        '--data_path', str(data_path),
         '--target', trial_dict['target'],
         '--train_epochs', str(trial_dict['epochs']),
         '--experiment_name', trial_dict['experiment_name'],
     ]
     return cmd
 
-def set_optuna_vars(trial,data_path):
-    """
-    Sets the optuna variables.
-
-    args:
-        trial: trial object
-        data_path: path to the data
-    
-    returns:
-        vars_dict (dict): dictionary of trial parameters
-    """
-    """
-    For some context, here is the correlation matrix between (some) hyperparameters and return:
-    llm_layers            -0.01203
-    sequence              -0.21257
-    prediction            -0.01400
-    patch                 -0.27668
-    stride                -0.31313
-    vocab_size             0.08179
-    llm_model_DEEPSEEK    -0.02113
-    llm_model_LLAMA3.1     0.07906
-    llm_model_MISTRAL     -0.09232
-    llm_model_QWEN         0.05585
-    features_MS           -0.08478
-    features_S             0.08478    
-    
-    # --- 2. Define the Hyperparameter Search Space ---
-    # Optuna will intelligently pick values from these ranges/choices.
-    
-    # Categorical parameters: Optuna will choose from the list.
-    features = trial.suggest_categorical("features", ["S","MS","M"])
-    seq_len = trial.suggest_categorical("seq_len", [72, 96, 120])
-    pred_len = trial.suggest_categorical("pred_len", [2, 2])
-    num_tokens = trial.suggest_categorical("num_tokens", [100, 500, 1000])
-    loss = trial.suggest_categorical("loss", ["MSE", "MADL", "GMADL", "MADLSTE"])
-    lradj = trial.suggest_categorical("lradj", ["type1", "type2", "type3", "PEMS", "TST", "constant"])
-
-    n_heads = trial.suggest_categorical("n_heads", [2, 4, 8, 16])
-    d_ff = trial.suggest_categorical("d_ff", [32, 64, 128, 256])
-    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
-    patch_len = trial.suggest_categorical("patch_len", [12, 16, 24])
-    stride = trial.suggest_categorical("stride", [6, 12])
-    epochs = trial.suggest_categorical("epochs", [10, 10])"""
-
-    # Sets the variables dictionary
-
 
 def set_optuna_vars(trial, data_path, args):
-    with open(Path("config/optuna_vars.yaml"), "r") as f:
+    with open(Path("config") / "optuna_vars.yaml", "r") as f:
         config = yaml.safe_load(f)
 
     params = {}
@@ -248,24 +201,31 @@ def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, root
         experiment_name: experiment name
     """
 
-    save_path = f"{root_path}inference"      # Folder name for the inference data
-    inf_output_path = save_path + "/inference.csv"      # Path to the inference data
+    inf_save_path = Path(root_path) / "inference"   # Folder name for the inference data
+    inf_output_path = Path(inf_save_path) / "inference.csv"      # Path to the inference data
 
     # Checks to run inference if the inference path is provided
     # As well checks if the returns flag is set and converts the data back to candlesticks
     if args.inf_path is not None:
         try:
             # MDA Metrics for the inference data
-            mda_vals = perform_inference(model_id, llm_model, inf_path, save_path = save_path, experiment_name = experiment_name)
+            mda_vals = perform_inference(model_id, llm_model, inf_path, save_path = inf_save_path, experiment_name = experiment_name)
             print(f"MDA Metrics for the inference data: {mda_vals}")
 
-            try:
-                mlflow.log_metric(f"inf_mda_1_candle", mda_vals['inf_mda_1_candle'], run_id = run.info.run_id) # Logs the MDA metric for the first candle
-            except Exception as e:
-                print(f"\nError logging MDA metric for the first candle:\n {e}\n\n")
+            pd.DataFrame(mda_vals).to_csv(Path(inf_save_path) / "mda_metrics.csv", index=False)
+            mlflow.log_artifact(Path(inf_save_path) / "mda_metrics.csv", run_id = run.info.run_id)
+            if os.path.exists(Path(inf_save_path) / "mda_metrics.csv"):
+                os.remove(Path(inf_save_path) / "mda_metrics.csv")
+
 
             if args.returns: # Converts the inference data back to candlesticks if the returns flag is set
-                convert_back_to_candlesticks(inf_path, inf_output_path, root_path, num_predictions = trial_dict['pred_len']) # Converts the inference data back to candlesticks
+                print(f"{inf_path} -> {inf_output_path}")
+                print(f"root_path: {root_path}")
+                print(f"num_predictions: {trial_dict['pred_len']}")
+                try:
+                    convert_back_to_candlesticks(inf_path, inf_output_path, root_path, num_predictions = trial_dict['pred_len']) # Converts the inference data back to candlesticks
+                except Exception as e:
+                    print(f"\nConversion back to candlesticks failed: \n\n{e}\n")
             
             # Performs the backtest if the backtest flag is set
             if args.backtest:   
@@ -278,7 +238,7 @@ def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, root
                     # saves the metrics to the database
                     metrics_to_db(metrics_db_path, model_id, metrics_json)
 
-                    mlflow.log_artifact("summary_table.csv", "summary_table.csv", run_id = run.info.run_id)
+                    mlflow.log_artifact("summary_table.csv", run_id = run.info.run_id)
 
                     # Removes the summary table file
                     if os.path.exists("summary_table.csv"):
@@ -302,18 +262,17 @@ def objective(trial):
     # Sets the optuna variables
     trial_dict = set_optuna_vars(trial, args.data_path, args)
 
-
-    if args.root_path[-1] != '/':
-        root_path = args.root_path + '/'
-    else:
-        root_path = args.root_path
+    root_path = Path(args.root_path)
 
     # Checks if the returns flag is set
     if args.returns:
-        data_path = convert_to_returns(args.data_path, root_path)
+
+        data_path = convert_to_returns(Path(args.data_path), root_path)
+        print(f"{args.data_path} -> {data_path}")
 
         if args.inf_path:
-            inf_path = convert_to_returns(args.inf_path, root_path)
+            inf_path = convert_to_returns(Path(args.inf_path), root_path)
+            print(f"{args.inf_path} -> {inf_path}")
     else:
         data_path = args.data_path
         inf_path = args.inf_path
@@ -341,11 +300,15 @@ def objective(trial):
 
         # Creates the command to train the model
         
+        print(f"data_path: {data_path}")
+        print(f"root_path: {root_path}")
+
         cmd = create_train_cmd(trial_dict, model_id, data_path, root_path)
         print(f"\n--- Starting Trial {trial.number} ---\n{' '.join(cmd)}\n")
 
         # Launch the subprocess
         subprocess.run(cmd, check=True, text=True, capture_output=True)
+        print
         # After the run completes, find it in MLflow
         time.sleep(4) # Give MLflow a moment to log everything
 
@@ -366,8 +329,6 @@ def objective(trial):
         final_metric = latest_metrics[validation_metric_key]
         
         print(f"--- Trial {trial.number} Finished ---")
-        print(f"Validation Metric ({validation_metric_key}): {final_metric}\n")
-
         
         # This section checks to run inference if the inference path is provided
         # As well checks if the returns flag is set and converts the data back to candlesticks
@@ -441,7 +402,7 @@ if __name__ == "__main__":
     
     # 'n_trials' is the total number of experiments you want to run.
     # Optuna will intelligently choose the parameters for these runs.
-    study.optimize(objective, n_trials=N_TRIALS)
+    study.optimize(objective, n_trials=args.trials)
 
     # --- 6. Print the Results ---
     print("\n--- Hyperparameter Optimization Finished ---")
