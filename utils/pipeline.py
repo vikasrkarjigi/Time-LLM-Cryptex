@@ -19,7 +19,7 @@ def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name)
     """
     print("\n==============================================")
     print(f"\nRunning inference for {model_id} with {llm_model} on {inf_path}")
-    print("\n==============================================")
+    print("\n==============================================\n")
 
 
     cmd = f"python run_inference.py --model_id {model_id} --llm_model {llm_model} --data_path {inf_path} --save_path {save_path} --experiment_name {experiment_name}"
@@ -33,6 +33,10 @@ def perform_backtest(inf_output_path, optimize=False):
     args:
         inf_output_path: path to the inferenced data in candlestick format
     """
+    print("\n==============================================")
+    print(f"\nPerforming backtest for {inf_output_path}")
+    print("\n==============================================\n")
+
 
     if optimize:
         cmd = f"python backtesting/backtest.py --data {inf_output_path} --walk_forward 12 --optimize BollingerAI --pipeline"
@@ -48,7 +52,7 @@ def perform_backtest(inf_output_path, optimize=False):
 
 
 
-def inf_analysis(run, inf_path):
+def inf_analysis(inf_path):
     """
     Perform analysis on the inference data.
 
@@ -77,6 +81,8 @@ def inf_analysis(run, inf_path):
         mda = ((pred_rets.iloc[-min_len:] * true_rets.iloc[-min_len:]) > 0).mean()
         mda_vals[f'inf_pred_{pred}_mda'] = mda
 
+    print(f"MDA values: {mda_vals}")
+
     return mda_vals
 
 
@@ -97,7 +103,7 @@ def create_metrics_json(mlflow_run_id, llm_model, experiment_name, summary_table
     metrics_dict["experiment_name"] = experiment_name
     metrics_dict["summary_table"] = summary_table.to_dict()
     metrics_dict["trial_parameters"] = trial_dict
-    metrics_dict["inference_metrics"] = mda_vals
+    metrics_dict["inf_analysis"] = mda_vals
 
     metrics_json = json.dumps(metrics_dict)
 
@@ -222,25 +228,18 @@ def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_
 
     # Make a copy of the candlesticks data
     result = candlesticks.copy()
-    
+
     # Get the last known close price before predictions start
-    print(f"Predicted returns: {predicted_returns.head()}")
-    try:
-        last_close = result.loc[result.index[predicted_returns['returns_predicted_1'].first_valid_index()-1], 'close']
-    except Exception as e:
-        print(f"Error getting last close price: {e}")
-        raise ValueError(f"Error getting last close price: {e}")
+    
+    last_close = result.loc[result.index[predicted_returns['returns_predicted_1'].first_valid_index()-1], 'close']
 
     for i in range(1, num_predictions+1):  
-        print(f"i: {i}")
         col = f'returns_predicted_{i}'
         if col in predicted_returns.columns:
             # Calculate cumulative returns 
             pred_close = last_close * (1 + predicted_returns[col])
             # Rename column
             result[f'close_predicted_{i}'] = pred_close
-
-    
 
     # Convert unix timestamp to UTC datetime
     result["timestamp"] = pd.to_datetime(result["timestamp"], unit='s', utc=True)
@@ -250,5 +249,3 @@ def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_
 
     return Path(inferenced_data_path)
     
-
-

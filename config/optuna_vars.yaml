@@ -32,20 +32,20 @@ categorical:
   features: ["S"]
   seq_len: [24]
   pred_len: [2]
-  num_tokens: [100, 500, 1000]
+  num_tokens: [100]
   loss: ["MSE"]
   lradj: ["type1", "type2", "type3", "PEMS", "TST", "constant"]
-  n_heads: [2, 4, 8, 16]
-  d_ff: [32, 64, 128, 256]
+  n_heads: [2]
+  d_ff: [32]
   batch_size: [8]
   patch_len: [12]
   stride: [2]
-  epochs: [1, 2]
+  epochs: [1]
 
 int:
   llm_layers:
-    low: 4
-    high: 6
+    low: 1
+    high: 2
   d_model:
     low: 16
     high: 64

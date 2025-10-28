@@ -1,3 +1,4 @@
+from typing import Any
 import optuna
 import pandas as pd
 import subprocess
@@ -26,7 +27,6 @@ os.environ["MLFLOW_S3_ENDPOINT_URL"] = f"http://{MLFLOW_SERVER_IP}:9000"
 
 # Optuna
 llm_model = "LLAMA3.1"
-N_TRIALS = 10
 OPTUNA_STORAGE_PATH = "sqlite:////data-fast/nfs/mlflow/"
 METRICS_DB_PATH = "/data-fast/nfs/mlflow/metrics.db"
 
@@ -209,45 +209,55 @@ def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, root
     if args.inf_path is not None:
         try:
             # MDA Metrics for the inference data
-            mda_vals = perform_inference(model_id, llm_model, inf_path, save_path = inf_save_path, experiment_name = experiment_name)
-            print(f"MDA Metrics for the inference data: {mda_vals}")
+            perform_inference(model_id, llm_model, inf_path, save_path = inf_save_path, experiment_name = experiment_name)
+        except Exception as e:
+            print(f"\nInference failed: {e}\n")
 
-            pd.DataFrame(mda_vals).to_csv(Path(inf_save_path) / "mda_metrics.csv", index=False)
+
+        if args.returns: # Converts the inference data back to candlesticks if the returns flag is set
+            
+            # Converts the inference data back to candlesticks
+            convert_back_to_candlesticks(original_data_path = args.data_path, # Original Candlestick Data Path
+                                        inferenced_data_path = inf_output_path, 
+                                        root_path = root_path, 
+                                        num_predictions = trial_dict['pred_len'])
+        
+        try:
+            mda_vals = inf_analysis(inf_output_path)
+        except Exception as e:
+            print(f"\nMDA analysis failed: {e}\n")
+
+        try:    
+            # Saves the MDA metrics to the MLflow run then removes the file
+            pd.DataFrame(list[tuple](mda_vals.items()), columns=['metric', 'value']).to_csv(Path(inf_save_path) / "mda_metrics.csv", index=False)
             mlflow.log_artifact(Path(inf_save_path) / "mda_metrics.csv", run_id = run.info.run_id)
             if os.path.exists(Path(inf_save_path) / "mda_metrics.csv"):
                 os.remove(Path(inf_save_path) / "mda_metrics.csv")
-
-
-            if args.returns: # Converts the inference data back to candlesticks if the returns flag is set
-                print(f"{inf_path} -> {inf_output_path}")
-                print(f"root_path: {root_path}")
-                print(f"num_predictions: {trial_dict['pred_len']}")
-                try:
-                    convert_back_to_candlesticks(inf_path, inf_output_path, root_path, num_predictions = trial_dict['pred_len']) # Converts the inference data back to candlesticks
-                except Exception as e:
-                    print(f"\nConversion back to candlesticks failed: \n\n{e}\n")
-            
-            # Performs the backtest if the backtest flag is set
-            if args.backtest:   
-                try:
-                    perform_backtest(inf_output_path) # Performs backtest and creates the summary table
-                    summary_table = pd.read_csv("summary_table.csv")
-
-                    # creates the metrics json
-                    metrics_json = create_metrics_json(run.info.run_id,llm_model, experiment_name, summary_table, mda_vals, trial_dict)
-                    # saves the metrics to the database
-                    metrics_to_db(metrics_db_path, model_id, metrics_json)
-
-                    mlflow.log_artifact("summary_table.csv", run_id = run.info.run_id)
-
-                    # Removes the summary table file
-                    if os.path.exists("summary_table.csv"):
-                        os.remove("summary_table.csv")
-
-                except Exception as e:
-                    print(f"\nBacktest failed: \n\n{e}\n")  
         except Exception as e:
-            print(f"\nInference failed: {e}\n")
+            print(f"\nMDA metrics save failed: {e}\n")
+        
+
+        # Performs the backtest if the backtest flag is set
+        if args.backtest:   
+            try:
+                perform_backtest(inf_output_path) # Performs backtest and creates the summary table
+            except Exception as e:
+                print(f"\nBacktest failed: \n\n{e}\n")  
+
+            summary_table = pd.read_csv("summary_table.csv")
+
+            # creates the metrics json
+            metrics_json = create_metrics_json(run.info.run_id,llm_model, experiment_name, summary_table, mda_vals, trial_dict)
+            # saves the metrics to the database
+            metrics_to_db(metrics_db_path, model_id, metrics_json)
+
+            mlflow.log_artifact("summary_table.csv", run_id = run.info.run_id)
+
+            # Removes the summary table file
+            if os.path.exists("summary_table.csv"):
+                os.remove("summary_table.csv")
+
+            
 
 
 # --- 1. Define the Objective Function ---
@@ -267,15 +277,13 @@ def objective(trial):
     # Checks if the returns flag is set
     if args.returns:
 
-        data_path = convert_to_returns(Path(args.data_path), root_path)
-        print(f"{args.data_path} -> {data_path}")
+        train_path = convert_to_returns(Path(args.data_path), root_path)
 
         if args.inf_path:
             inf_path = convert_to_returns(Path(args.inf_path), root_path)
-            print(f"{args.inf_path} -> {inf_path}")
     else:
-        data_path = args.data_path
-        inf_path = args.inf_path
+        train_path = Path(args.data_path)
+        inf_path = Path(args.inf_path)
 
     
     # --- Dynamic/Conditional Parameters ---
@@ -300,15 +308,11 @@ def objective(trial):
 
         # Creates the command to train the model
         
-        print(f"data_path: {data_path}")
-        print(f"root_path: {root_path}")
-
-        cmd = create_train_cmd(trial_dict, model_id, data_path, root_path)
+        cmd = create_train_cmd(trial_dict, model_id, train_path, root_path)
         print(f"\n--- Starting Trial {trial.number} ---\n{' '.join(cmd)}\n")
 
         # Launch the subprocess
         subprocess.run(cmd, check=True, text=True, capture_output=True)
-        print
         # After the run completes, find it in MLflow
         time.sleep(4) # Give MLflow a moment to log everything
 
@@ -380,8 +384,6 @@ if __name__ == "__main__":
 
     if args.gpu != '1':
         METRICS_DB_PATH = f"/mnt/nfs/mlflow/metrics.db"
-
-    print(f"OPTUNA_STORAGE_PATH: {OPTUNA_STORAGE_PATH}")
 
     # Create a new study name if the user wants a new study based on datetime
     if args.new_study == 'True':
