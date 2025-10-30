@@ -72,13 +72,31 @@ docker-compose up
 ## Training with Hyperparameter Optimization
 1. Download datasets and place them under `./dataset`.
 2. Edit domain-specific prompts in ```./dataset/prompt_bank```.
-3. An example hyperparameter optimization setup is provided in `./run_hpo.py`. You can run it with:
+3. An example hyperparameter optimization setup is provided in `./optuna_vars.yaml`. You can run the setup with:
 
 ```bash
-python run_hpo.py
+python run_hpo.py [--args]
 ```
-4. Training metadata is saved to MLflow.
+
+4. Training metadata is saved to MLflow. The inferenced results and backtesting results are also saved in the MLFlow 
 5. Trained models, inference CSVs and failed experiment logs are saved in the MinIO object store.
+
+### Arguments
+
+| Argument | Type | Default | Description |
+|-----------|------|----------|--------------|
+| `--gpu` | `str` | `'1'` | If not GPU 1, it changes the location of the databases. |
+| `--new_study` | `str` | `'False'` | If `True`, creates a new Optuna study based on datetime. |
+| `--study_name` | `str` | `'optuna_study'` | If not empty, uses the given study name. The model name is prepended automatically. |
+| `--db_name` | `str` | `'optuna_study.db'` | Name of the Optuna database file to access. |
+| `--data_path` | `str` | `'daily/candlesticks-d.csv'` | Dataset path inside `./dataset/cryptex/`. |
+| `--returns` | *flag* | `False` | Trains model with returns instead of OHLCV if set. |
+| `--inf_path` | `str` | `None` | Path to inference dataset inside `./dataset/cryptex/`. |
+| `--backtest` | *flag* | `False` | Runs backtest automatically after training. |
+| `--root_path` | `str` | `'./dataset/cryptex/'` | Root path for datasets. |
+| `--experiment_name` | `str` | `None` | MLflow experiment name (optional). |
+| `--trials` | `int` | `10` | Number of Optuna trials to run. |
+
 
 ### Key hyperparameters
 The following are hyperparameters we found most influential for good performance:

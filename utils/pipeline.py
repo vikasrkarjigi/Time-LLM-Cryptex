@@ -50,8 +50,6 @@ def perform_backtest(inf_output_path, optimize=False):
     return summary_table
 
 
-
-
 def inf_analysis(inf_path):
     """
     Perform analysis on the inference data.
@@ -80,8 +78,6 @@ def inf_analysis(inf_path):
         min_len = min(len(pred_rets), len(true_rets))
         mda = ((pred_rets.iloc[-min_len:] * true_rets.iloc[-min_len:]) > 0).mean()
         mda_vals[f'inf_pred_{pred}_mda'] = mda
-
-    print(f"MDA values: {mda_vals}")
 
     return mda_vals
 
@@ -177,10 +173,8 @@ def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=Tr
     # Checks if the data path is a file or a directory and saves the output path accordingly
 
     try:
-        print(f"Reading data from {Path(root_path) / data_path}")
         data = pd.read_csv(Path(root_path) / data_path)
         output_path = data_path.with_stem(data_path.stem + "_returns").with_suffix(".csv")
-        print(f"Saving data to {output_path}")  
     except:
         raise ValueError(f"Data path {data_path} is not a valid file or directory.")
 

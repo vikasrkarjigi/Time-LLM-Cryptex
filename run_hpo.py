@@ -14,6 +14,8 @@ from pathlib import Path
 from utils.pipeline import perform_inference, perform_backtest, inf_analysis, convert_to_returns, convert_back_to_candlesticks, metrics_to_db, create_metrics_json
 import pathlib
 import warnings
+import sqlite3
+
 
 # --- Centralized Configuration ---
 MLFLOW_SERVER_IP = "192.168.1.103"
@@ -249,7 +251,12 @@ def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, root
             # creates the metrics json
             metrics_json = create_metrics_json(run.info.run_id,llm_model, experiment_name, summary_table, mda_vals, trial_dict)
             # saves the metrics to the database
-            metrics_to_db(metrics_db_path, model_id, metrics_json)
+            try:
+                metrics_to_db(metrics_db_path, model_id, metrics_json)
+            except sqlite3.Error as e:
+                print(f"\nSQLite error: \n\n{e}\n")
+            except Exception as e:
+                print(f"\nMetrics to database failed: \n\n{e}\n")
 
             mlflow.log_artifact("summary_table.csv", run_id = run.info.run_id)
 
@@ -397,7 +404,7 @@ if __name__ == "__main__":
 
     study = optuna.create_study(
         study_name=study_name,
-        direction="minimize",  # We want to minimize validation loss/metric
+        direction="maximize", 
         storage=OPTUNA_STORAGE_PATH,
         load_if_exists=True # Resume study if it already exists
     )
