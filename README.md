@@ -86,7 +86,7 @@ python run_hpo.py [--args]
 | Argument | Type | Default | Description |
 |-----------|------|----------|--------------|
 | `--gpu` | `str` | `'1'` | If not GPU 1, it changes the location of the databases. |
-| `--new_study` | *flag* | `'False'` | If flag is set, creates a new Optuna study based on datetime. |
+| `--new_study` | *flag* | `False` | If flag is set, creates a new Optuna study based on datetime. |
 | `--study_name` | `str` | `'optuna_study'` | If not empty, uses the given study name. The model name is prepended automatically. |
 | `--db_name` | `str` | `'optuna_study.db'` | Name of the Optuna database file to access. |
 | `--data_path` | `str` | `'daily/candlesticks-d.csv'` | Dataset path inside `./dataset/cryptex/`. |
