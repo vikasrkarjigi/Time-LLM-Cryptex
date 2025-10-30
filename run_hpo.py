@@ -35,7 +35,7 @@ METRICS_DB_PATH = "/data-fast/nfs/mlflow/metrics.db"
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--gpu', type=str, default='1', help='If not GPU 1, changes OPTUNA_STORAGE_PATH.')
-    parser.add_argument('--new_study', type=str, default='False', help='If True, creates a new study based on datetime')
+    parser.add_argument('--new_study', action='store_true', help='If True, creates a new study based on datetime')
     parser.add_argument('--study_name', type=str, default='', help='If not empty, uses the study name. Model name is added to the beginning of the study name.')
     parser.add_argument('--db_name', type=str, default='optuna_study.db', help='Default is optuna_study.db. Accesses the specified database.')
     parser.add_argument('--data_path', type=str, default='daily', help='Data path to use. Data path already exists in ./dataset/cryptex/')
@@ -393,7 +393,7 @@ if __name__ == "__main__":
         METRICS_DB_PATH = f"/mnt/nfs/mlflow/metrics.db"
 
     # Create a new study name if the user wants a new study based on datetime
-    if args.new_study == 'True':
+    if args.new_study:
         study_name = f"{llm_model.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_study"
     else:
         # Use the old study name
