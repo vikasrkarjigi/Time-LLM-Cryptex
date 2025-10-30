@@ -72,7 +72,7 @@ docker-compose up
 ## Training with Hyperparameter Optimization
 1. Download datasets and place them under `./dataset`.
 2. Edit domain-specific prompts in ```./dataset/prompt_bank```.
-3. An example hyperparameter optimization setup is provided in `./optuna_vars.yaml`. You can run the setup with:
+3. An example hyperparameter optimization setup is provided in `.config/optuna_vars.yaml`. You can run the setup with:
 
 ```bash
 python run_hpo.py [--args]
