@@ -45,6 +45,8 @@ def parse_args():
     parser.add_argument('--root_path', type=str, default='./dataset/cryptex/', help='Root path to use. Root path already exists in ./dataset/cryptex/')
     parser.add_argument('--experiment_name', type=str, default=None, help='Experiment name to use. Default is None.')
     parser.add_argument('--trials', type=int, default=10, help='Number of trials to run.')
+    parser.add_argument('--aggregate', type=int, default=1, help='If set, aggregates from the original granularity to the specified granularity.')
+    parser.add_argument('--aggregate_inference', type='store_true', default=True, help='If set, aggregates the inference data to the specified granularity. Default is True.')
     return parser.parse_args()
   
 

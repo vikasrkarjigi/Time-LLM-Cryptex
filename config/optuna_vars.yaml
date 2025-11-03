@@ -29,12 +29,12 @@
 
 
 categorical:
-  features: ["S", "MS"]
-  seq_len: [24, 48, 168]
+  features: ["S", "M"]
+  seq_len: [168, 336]
   pred_len: [24]
   num_tokens: [100, 500, 1000]
   loss: ["MSE"]
-  lradj: ["TST","constant"]
+  lradj: ["TST","type1","COS"]
   n_heads: [2, 4, 8, 16]
   d_ff: [32, 64, 128, 256]
   batch_size: [8, 16]
@@ -62,7 +62,7 @@ float:
     step: 0.1
   learning_rate:
     low: 1e-5
-    high: 1e-2
+    high: 1e-1
     log: true
 
 # log_float:

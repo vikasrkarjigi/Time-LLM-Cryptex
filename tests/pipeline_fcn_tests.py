@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from utils.pipeline import inf_analysis, perform_backtest  
+from utils.pipeline import inf_analysis, perform_backtest, aggregate_data  
 import mlflow
 import argparse
 import os
@@ -16,3 +16,6 @@ def test_inf_analysis():
 def test_backtest_pipeline():
     run = None
     print(f"Backtest pipeline: {perform_backtest(TEST_PATH, optimize=False)}")
+
+def test_aggregate_data():
+    print(f"Aggregate data: {aggregate_data('daily/candlesticks-D.csv', './dataset/cryptex/', 7)}")

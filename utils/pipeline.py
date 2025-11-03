@@ -156,6 +156,48 @@ def metrics_to_db(metrics_db_path, model_id, metrics_json):
     db.commit()
     db.close()
 
+def aggregate_data(data_path, root_path, aggregate):
+    """
+    Aggregate OHLCV data from the original granularity to the specified granularity.
+    Saves to {root_path}/agg_data.csv
+
+    args:
+        data_path: path to the data from root_path
+        root_path: path to the root
+        aggregate: aggregate period (e.g., '5' for 5 minutes from 1 minute, '60' for 1 hour from 1 minute, '1440' for 1 day from 1 minute)
+    returns:
+        Path to the aggregated data file
+    """
+    data_path = Path(data_path)
+    full_path = Path(root_path) / data_path
+    if not full_path.exists():
+        raise ValueError(f"Data path {full_path} not found")
+
+    data = pd.read_csv(full_path)
+    if 'timestamp' not in data:
+        raise ValueError("Missing 'timestamp' column")
+
+    unix = data['timestamp'].dtype in ('int64', 'float64')
+    data['timestamp'] = pd.to_datetime(data['timestamp'], unit='s', utc=True) if unix else pd.to_datetime(data['timestamp'])
+    data.set_index('timestamp', inplace=True)
+
+    # Convert numeric aggregate to pandas frequency string (e.g., 5 -> '5T' for 5 minutes)
+    freq = f'{aggregate}T' if isinstance(aggregate, (int, float)) else aggregate
+
+    agg = {k: v for k, v in {
+        'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
+    }.items() if k in data}
+    agg.update({c: 'mean' for c in data if c not in agg})
+
+    out = data.resample(freq).agg(agg).dropna().reset_index()
+    if unix:
+        out['timestamp'] = out['timestamp'].astype('int64') // 10**9
+
+    out_path = Path(root_path) / "agg_data.csv"
+    out.to_csv(Path(root_path) / out_path, index=False)
+    
+    return Path(out_path)
+
 
 def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=True, log_returns=False):
     """
