@@ -60,7 +60,7 @@ def inf_analysis(inf_path):
         new_data_path: path to the new data
     """
 
-    data = pd.read_csv(inf_path).dropna()
+    data = pd.read_csv(inf_path)
     pred_len = data.columns.str.contains('predicted').sum()
 
     mda_vals = {}
@@ -73,31 +73,41 @@ def inf_analysis(inf_path):
             print(f"Column {pred_col} not found in data.")
             continue
         
-        # We can only evaluate up to len(data) - pred positions
-        # because we need pred steps of future actual values
-        valid_positions = len(data) - pred
+        # Find rows where this prediction column has values (not NaN)
+        valid_pred_mask = data[pred_col].notna()
+        valid_pred_indices = data.index[valid_pred_mask].values
         
-        if valid_positions <= 0:
-            print(f"Not enough data to evaluate prediction horizon {pred}")
+        if len(valid_pred_indices) == 0:
+            print(f"No valid predictions found in {pred_col}")
             continue
         
-        # Current actual values (where predictions were made)
-        current_actual = data['close'].iloc[:valid_positions].values
+        # For each valid prediction, we need to check if we have the future actual value
+        # The prediction at index i predicts the value at index i+pred
+        valid_comparisons = []
         
-        # Predicted values for pred steps ahead
-        predicted_values = data[pred_col].iloc[:valid_positions].values
+        for idx in valid_pred_indices:
+            future_idx = idx + pred
+            
+            # Check if future actual value exists in the dataframe
+            if future_idx < len(data) and pd.notna(data['close'].iloc[future_idx]):
+                current_actual = data['close'].iloc[idx]
+                predicted_value = data[pred_col].iloc[idx]
+                future_actual = data['close'].iloc[future_idx]
+                
+                # Calculate directions
+                predicted_direction = predicted_value - current_actual
+                actual_direction = future_actual - current_actual
+                
+                # Check if signs match
+                correct = (predicted_direction * actual_direction) > 0
+                valid_comparisons.append(correct)
         
-        # Actual future values (pred steps ahead)
-        future_actual = data['close'].iloc[pred:pred+valid_positions].values
-        
-        predicted_direction = predicted_values - current_actual
-        
-        actual_direction = future_actual - current_actual
-        
-        correct_direction = (predicted_direction * actual_direction) > 0
+        if len(valid_comparisons) == 0:
+            print(f"No valid comparisons for prediction horizon {pred}")
+            continue
         
         # Calculate directional accuracy
-        mda = correct_direction.mean()
+        mda = np.mean(valid_comparisons)
         mda_vals[f'inf_pred_{pred}_mda'] = mda
 
     return mda_vals
@@ -173,7 +183,7 @@ def metrics_to_db(metrics_db_path, model_id, metrics_json):
         VALUES (?, ?)
     """, (model_id, json.dumps(metrics_json)))
 
-    print(f"Metrics inserted into {metrics_db_path} for model {model_id}")
+    print(f"Metrics inserted into {metrics_db_path} for model {model_id}\n")
     db.commit()
     db.close()
 
