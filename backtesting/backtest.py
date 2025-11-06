@@ -3,7 +3,7 @@ import backtrader as bt
 import numpy as np
 import pandas as pd
 import tqdm
-
+import os
 from sharpe_calculator import sharpe_from_trade_log, sortino_from_trade_log
 
 from utils import load_and_prepare_data
@@ -628,7 +628,8 @@ def main():
         runner.run_all_strategies()
         summary_table = runner.create_summary_table()
         if runner.pipeline:
-            summary_table.to_csv("summary_table.csv", index=False)
+            os.makedirs("temp", exist_ok=True)
+            summary_table.to_csv("temp/summary_table.csv", index=False)
         else:
             print(summary_table)
 

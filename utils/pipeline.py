@@ -29,6 +29,7 @@ def perform_inference(model_id, llm_model, inf_path, save_path, experiment_name)
 def perform_backtest(inf_output_path, optimize=False):
     """
     Perform backtest on the inference data.
+    This function saves the summary table to the temp folder.
 
     args:
         inf_output_path: path to the inferenced data in candlestick format
@@ -59,24 +60,44 @@ def inf_analysis(inf_path):
         new_data_path: path to the new data
     """
 
-    to_rets = lambda x : x / x.shift(1) - 1
-
     data = pd.read_csv(inf_path).dropna()
     pred_len = data.columns.str.contains('predicted').sum()
 
-    true_rets = to_rets(data['close'])
-
     mda_vals = {}
 
+    
     for pred in range(1, pred_len+1):
-        try:
-            pred_rets = to_rets(data[f'close_predicted_{pred}']) 
-        except:
-            print(f"Column {f'close_predicted_{pred}'} not found in data.")
+        pred_col = f'close_predicted_{pred}'
+        
+        if pred_col not in data.columns:
+            print(f"Column {pred_col} not found in data.")
             continue
-
-        min_len = min(len(pred_rets), len(true_rets))
-        mda = ((pred_rets.iloc[-min_len:] * true_rets.iloc[-min_len:]) > 0).mean()
+        
+        # We can only evaluate up to len(data) - pred positions
+        # because we need pred steps of future actual values
+        valid_positions = len(data) - pred
+        
+        if valid_positions <= 0:
+            print(f"Not enough data to evaluate prediction horizon {pred}")
+            continue
+        
+        # Current actual values (where predictions were made)
+        current_actual = data['close'].iloc[:valid_positions].values
+        
+        # Predicted values for pred steps ahead
+        predicted_values = data[pred_col].iloc[:valid_positions].values
+        
+        # Actual future values (pred steps ahead)
+        future_actual = data['close'].iloc[pred:pred+valid_positions].values
+        
+        predicted_direction = predicted_values - current_actual
+        
+        actual_direction = future_actual - current_actual
+        
+        correct_direction = (predicted_direction * actual_direction) > 0
+        
+        # Calculate directional accuracy
+        mda = correct_direction.mean()
         mda_vals[f'inf_pred_{pred}_mda'] = mda
 
     return mda_vals
@@ -156,24 +177,17 @@ def metrics_to_db(metrics_db_path, model_id, metrics_json):
     db.commit()
     db.close()
 
-def aggregate_data(data_path, root_path, aggregate):
+def aggregate_data(data, aggregate):
     """
     Aggregate OHLCV data from the original granularity to the specified granularity.
-    Saves to {root_path}/agg_data.csv
+    Saves to save_path
 
     args:
-        data_path: path to the data from root_path
-        root_path: path to the root
+        data_path: path to the data
         aggregate: aggregate period (e.g., '5' for 5 minutes from 1 minute, '60' for 1 hour from 1 minute, '1440' for 1 day from 1 minute)
     returns:
-        Path to the aggregated data file
+        Path to the aggregated data file (save_path)
     """
-    data_path = Path(data_path)
-    full_path = Path(root_path) / data_path
-    if not full_path.exists():
-        raise ValueError(f"Data path {full_path} not found")
-
-    data = pd.read_csv(full_path)
     if 'timestamp' not in data:
         raise ValueError("Missing 'timestamp' column")
 
@@ -193,34 +207,33 @@ def aggregate_data(data_path, root_path, aggregate):
     if unix:
         out['timestamp'] = out['timestamp'].astype('int64') // 10**9
 
-    out_path = Path(root_path) / "agg_data.csv"
-    out.to_csv(Path(root_path) / out_path, index=False)
-    
-    return Path(out_path)
+    return out
 
-
-def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=True, log_returns=False):
+def convert_to_returns(data_path, keep_high_low=False, keep_volume=True, log_returns=False):
     """
     Convert data to returns.
 
     args:
-        data_path: path to the data from root_path
-        root_path: path to the root
+        data_path: path to the data
         log_returns: bool, if True, the data is converted to log returns
         keep_high_low: bool, if True, the high and low prices are kept
         keep_volume: bool, if True, the volume column is kept
     returns:
-        pandas DataFrame with "returns" and "volume" columns
+        Path to the returns data file (data_path)
     """
     # Checks if the data path is a file or a directory and saves the output path accordingly
 
     try:
-        data = pd.read_csv(Path(root_path) / data_path)
-        output_path = data_path.with_stem(data_path.stem + "_returns").with_suffix(".csv")
+        data = pd.read_csv(data_path)
     except:
-        raise ValueError(f"Data path {data_path} is not a valid file or directory.")
-
-    data = pd.DataFrame({"close": data["close"], "volume": data["volume"], "timestamp": data["timestamp"]})
+        raise ValueError(f"Data path {data_path} is not a valid file.")
+    try:
+        data = pd.DataFrame({"close": data["close"], "volume": data["volume"], "timestamp": data["timestamp"]})
+    except:
+        print("-------------ERROR-------------------")
+        print(data.head())
+        print("-------------ERROR-------------------")
+        raise ValueError(f"Data path {data_path} is not a valid file.")
     if log_returns:
         data["returns"] = np.log(data["close"] / data["close"].shift(1))
     else:
@@ -240,11 +253,11 @@ def convert_to_returns(data_path, root_path, keep_high_low=False, keep_volume=Tr
 
     final_data["timestamp"] = data["timestamp"]
 
-    final_data.to_csv(Path(root_path) / output_path, index=False)
+    final_data.to_csv(data_path, index=False)
 
-    return Path(output_path)
+    return data_path
 
-def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_path, num_predictions):
+def convert_back_to_candlesticks(original_data_path, inferenced_data_path, num_predictions):
     """
     Convert returns data back to candlesticks. This is used to backtest the model.
     Writes the inferenced data to the inferenced data path.
@@ -256,18 +269,23 @@ def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_
     if not os.path.exists(Path(inferenced_data_path)):
         raise ValueError(f"Inference data path {inferenced_data_path} does not exist.")
 
-    if not os.path.exists(Path(root_path) / original_data_path):
-        raise ValueError(f"Original data path {Path(root_path) / original_data_path} does not exist.")
+    if not os.path.exists(original_data_path):
+        raise ValueError(f"Original data path {original_data_path} does not exist.")
 
-    candlesticks = pd.read_csv(Path(root_path) / original_data_path)
-    predicted_returns = pd.read_csv(Path(inferenced_data_path))
+    candlesticks = pd.read_csv(original_data_path)
+    predicted_returns = pd.read_csv(inferenced_data_path)
 
     # Make a copy of the candlesticks data
     result = candlesticks.copy()
 
     # Get the last known close price before predictions start
-    
-    last_close = result.loc[result.index[predicted_returns['returns_predicted_1'].first_valid_index()-1], 'close']
+    try:
+        last_close = result.loc[result.index[predicted_returns['returns_predicted_1'].first_valid_index()-1], 'close']
+    except:
+        print(result.head())
+        print("--------------------------------")
+        print(predicted_returns.head())
+        raise ValueError(f"No valid close price found in the original data.")
 
     for i in range(1, num_predictions+1):  
         col = f'returns_predicted_{i}'
@@ -280,8 +298,8 @@ def convert_back_to_candlesticks(original_data_path, inferenced_data_path, root_
     # Convert unix timestamp to UTC datetime
     result["timestamp"] = pd.to_datetime(result["timestamp"], unit='s', utc=True)
 
-    result.to_csv(Path(inferenced_data_path), index=False)
-    print(f"Predicted returns saved to {Path(inferenced_data_path)}")
+    result.to_csv(inferenced_data_path, index=False)
+    print(f"Predicted returns saved to {inferenced_data_path}")
 
-    return Path(inferenced_data_path)
+    return inferenced_data_path
     
