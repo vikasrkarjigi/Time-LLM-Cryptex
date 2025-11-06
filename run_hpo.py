@@ -51,7 +51,8 @@ def parse_args():
     parser.add_argument('--experiment_name', type=str, default=None, help='Experiment name to use. Default is None.')
     parser.add_argument('--trials', type=int, default=10, help='Number of trials to run.')
     parser.add_argument('--aggregate', type=int, default=1, help='If set, aggregates from the original granularity to the specified granularity.')
-    parser.add_argument('--aggregate_inference', action='store_false', help='If set, does NOT aggregate the inference data to the specified granularity.')
+    parser.add_argument('--no_inf_aggregate', action='store_true', help='By default, aggregates inference data. Set this flag to disable aggregation.')
+    parser.add_argument('--no_inf_log_metrics', action='store_true', help='By default, logs inference metrics to MLflow. Set this flag to skip logging (still logs as artifacts).')
     return parser.parse_args()
   
 
@@ -231,7 +232,8 @@ def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, tria
         try:
             mda_vals = inf_analysis(inf_output_path)
             try:
-                mlflow.log_metrics(mda_vals, step = 1, run_id = run.info.run_id)
+                if not args.no_inf_log_metrics:
+                    mlflow.log_metrics(mda_vals, step = 1, run_id = run.info.run_id)
             except Exception as e:  
                 print(f"\nMDA metrics log failed: {e}\n")
         except Exception as e:
@@ -442,7 +444,7 @@ if __name__ == "__main__":
         if args.inf_end:
             inf_data = inf_data[inf_data['timestamp'] <= datetime.strptime(args.inf_end, '%Y-%m-%d').timestamp()]
             
-        if args.aggregate and not args.aggregate_inference:
+        if args.aggregate and not args.no_inf_aggregate:
             inf_data = aggregate_data(inf_data, args.aggregate)
 
         inf_data.to_csv(Path('temp') / "org_inf_data.csv", index=False)
