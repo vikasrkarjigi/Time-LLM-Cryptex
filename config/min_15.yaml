@@ -1,0 +1,43 @@
+# This is the configuration for the 15 minute dataset.
+# It is used to optimize the hyperparameters for the model.
+# python3 run_hpo.py --gpu 2 --study_name minute_15 --granularity minute --yaml_file min_15.yaml --start 2020-01-01 --end 2020-01-15 --inf_start 2021-01-01 --inf_end 2021-01-31 --returns --backtest --experiment_name exp_min_15 --trials 50 --aggregate 15
+
+categorical:
+  features: ["S", "M"]
+  seq_len: [96, 192, 288]
+  pred_len: [4, 24] # 1 Hour and 6 Hours
+  num_tokens: [100, 500, 1000]
+  loss: ["MSE"]
+  lradj: ["TST","type1","COS"]
+  n_heads: [2, 4, 8, 16]
+  d_ff: [32, 64, 128, 256]
+  batch_size: [8,16]
+  patch_len: [8, 16, 24]
+  stride: [4, 8, 12]
+  epochs: [10] # Epochs must be more than 1
+
+int:
+  llm_layers:
+    low: 4
+    high: 8
+  d_model:
+    low: 32
+    high: 64
+    step: 16
+
+float:
+  dropout:
+    low: 0.0
+    high: 0.5
+    step: 0.1
+  pct_start:
+    low: 0.1
+    high: 0.5
+    step: 0.1
+  learning_rate:
+    low: 1e-5
+    high: 1e-1
+    log: true
+
+# log_float:
+# Cannot be used if there are no parameters in the section

@@ -52,7 +52,8 @@ def parse_args():
     parser.add_argument('--trials', type=int, default=10, help='Number of trials to run.')
     parser.add_argument('--aggregate', type=int, default=1, help='If set, aggregates from the original granularity to the specified granularity.')
     parser.add_argument('--no_inf_aggregate', action='store_true', help='By default, aggregates inference data. Set this flag to disable aggregation.')
-    parser.add_argument('--no_inf_log_metrics', action='store_true', help='By default, logs inference metrics to MLflow. Set this flag to skip logging (still logs as artifacts).')
+    parser.add_argument('--log_all_metrics', action='store_true', help='By default, logs only the best metric to MLflow. Set this flag to log all metrics (still logs as artifacts).')
+    parser.add_argument('--yaml_file', type=str, default='optuna_vars.yaml', help='YAML file to use for the study. Default is optuna_vars.yaml. Contained in ./config/')
     return parser.parse_args()
   
 
@@ -123,7 +124,7 @@ def create_train_cmd(trial_dict, model_id, data_path):
 
 
 def set_optuna_vars(trial, data_path, args):
-    with open(Path("config") / "optuna_vars.yaml", "r") as f:
+    with open(Path("config") / args.yaml_file, "r") as f:
         config = yaml.safe_load(f)
 
     params = {}
@@ -188,6 +189,8 @@ def set_optuna_vars(trial, data_path, args):
     trial.set_user_attr("target", params["target"])
     trial.set_user_attr("data_type", "returns" if args.returns else "ohlcv")
     trial.set_user_attr("metric", "MDA")
+    print(params)
+    print("--------------------------------")
 
     return params
 
@@ -232,8 +235,15 @@ def run_pipeline(run, metrics_db_path, model_id, llm_model, args, inf_path, tria
         try:
             mda_vals = inf_analysis(inf_output_path)
             try:
-                if not args.no_inf_log_metrics:
+                if args.log_all_metrics:
                     mlflow.log_metrics(mda_vals, step = 1, run_id = run.info.run_id)
+                else:
+                    max_mda = max(mda_vals.values())
+                    for key, value in mda_vals.items():
+                        if value == max_mda:
+                            mlflow.log_metric(key = f"Best Inf MDA", value = value, step = 1, run_id = run.info.run_id)
+                            mlflow.log_metric(key = f"Best Inf MDA Candle", value = int(key.split("_")[1]), step = 1, run_id = run.info.run_id)
+                            break
             except Exception as e:  
                 print(f"\nMDA metrics log failed: {e}\n")
         except Exception as e:
@@ -323,7 +333,7 @@ def objective(trial):
     
     try:
         if args.backtest and not INFERENCE:
-            raise Warning("Backtest flag is set but no inference date is provided. - Will not perform backtest.")
+            warnings.warn("Backtest flag is set but no inference date is provided. - Will not perform backtest.")
 
         # Creates the command to train the model
         
@@ -412,7 +422,7 @@ if __name__ == "__main__":
         DATASET_PATH = DATASET_PATH / "candlesticks-Min.csv"
 
     if args.data_path is None and args.start is None:
-        raise Warning("Data path and start date are not provided. - Will not use the full dataset.")
+        warnings.warn("Data path and start date are not provided - Will start from the beginning of the dataset. If no end date is provided, it will use the entire dataset.")
 
     print(f"Prepping Data...")
 

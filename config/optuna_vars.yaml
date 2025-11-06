@@ -31,17 +31,17 @@
 
 categorical:
   features: ["S", "M"]
-  seq_len: [168, 336]
-  pred_len: [2]
+  seq_len: [28, 56, 84, 168]
+  pred_len: [7, 14]
   num_tokens: [100, 500, 1000]
   loss: ["MSE"]
   lradj: ["TST","type1","COS"]
   n_heads: [2, 4, 8, 16]
   d_ff: [32, 64, 128, 256]
-  batch_size: [8]
-  patch_len: [12]
-  stride: [6]
-  epochs: [2] # Epochs must be more than 1
+  batch_size: [8,16]
+  patch_len: [7,14,21]
+  stride: [2, 7, 14]
+  epochs: [10] # Epochs must be more than 1
 
 int:
   llm_layers:

@@ -46,10 +46,6 @@ def perform_backtest(inf_output_path, optimize=False):
 
     subprocess.run(cmd, shell=True)
 
-    summary_table = pd.read_csv("summary_table.csv")
-    
-    return summary_table
-
 
 def inf_analysis(inf_path):
     """
