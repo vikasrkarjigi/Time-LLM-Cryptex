@@ -1,0 +1,18 @@
+{
+  "csv": "dataset/cryptex/daily/btc_cycle5_bull_1D_yfinance_reordered.csv",
+  "seq_lens": [
+    30,
+    60,
+    90
+  ],
+  "epochs": 50,
+  "patience": 7,
+  "batch_size": 64,
+  "hidden": 128,
+  "layers": 2,
+  "dropout": 0.2,
+  "lr": 0.001,
+  "horizon": 1,
+  "device": "cuda",
+  "timestamp": "2025-11-06_10-38-54"
+}

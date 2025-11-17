@@ -1,0 +1,4 @@
+
+Best seq_len = 30 (val_mse=0.004892)
+Last date in data: 2025-05-12 00:00:00
+Predicted NEXT-DAY close: 101991.77

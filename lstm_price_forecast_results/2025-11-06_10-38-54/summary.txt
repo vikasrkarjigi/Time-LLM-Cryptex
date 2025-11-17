@@ -1,0 +1,4 @@
+=== Summary (sorted by validation MSE) ===
+seq= 30 | val_mse=0.004892 | MAE=6998.9316 | RMSE=8190.6703 | MAPE%=8.07 | model=lstm_price_forecast_results/2025-11-06_10-38-54/lstm_seq30_best.pt | preds=lstm_price_forecast_results/2025-11-06_10-38-54/lstm_seq30_test_predictions.csv
+seq= 90 | val_mse=0.024086 | MAE=5557.6890 | RMSE=7057.9581 | MAPE%=5.95 | model=lstm_price_forecast_results/2025-11-06_10-38-54/lstm_seq90_best.pt | preds=lstm_price_forecast_results/2025-11-06_10-38-54/lstm_seq90_test_predictions.csv
+seq= 60 | val_mse=0.026481 | MAE=4729.1924 | RMSE=6786.1379 | MAPE%=5.08 | model=lstm_price_forecast_results/2025-11-06_10-38-54/lstm_seq60_best.pt | preds=lstm_price_forecast_results/2025-11-06_10-38-54/lstm_seq60_test_predictions.csv
