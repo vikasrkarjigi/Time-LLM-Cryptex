@@ -337,7 +337,7 @@ def main():
     df_va.to_csv(os.path.join(split_dir, "val_split.csv"), index=False)
     df_te.to_csv(os.path.join(split_dir, "test_split.csv"), index=False)
 
-    print(f"\n✅ Saved split CSVs to: {split_dir}")
+    print(f"\n Saved split CSVs to: {split_dir}")
     print(f"Train set: {len(df_tr)} rows | {df_tr['timestamp'].iloc[0]} → {df_tr['timestamp'].iloc[-1]}")
     print(f"Val set:   {len(df_va)} rows | {df_va['timestamp'].iloc[0]} → {df_va['timestamp'].iloc[-1]}")
     print(f"Test set:  {len(df_te)} rows | {df_te['timestamp'].iloc[0]} → {df_te['timestamp'].iloc[-1]}")
